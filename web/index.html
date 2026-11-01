@@ -5,122 +5,236 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Giver — восхождение</title>
 <style>
+  /* Игра во весь экран; интерфейс — тёмное стекло по краям, тёплый оранжевый акцент (костёр, крюк) */
+  :root {
+    --cream: #fff6ea; --muted: #d9e3e8; --ink: #1d2830;
+    --glass: rgba(16, 26, 34, 0.5); --glass-strong: rgba(16, 26, 34, 0.72); --line: rgba(255, 255, 255, 0.22);
+    --ember: #ff8a3d; --ember-hi: #ffb35c; --hp: #ff5a64; --st: #ffd23a; --st-low: #ff7a2a; --sky: #9fd3f0;
+    --display: "Comfortaa", "Nunito", system-ui, sans-serif; --ui: "Nunito", system-ui, sans-serif;
+    --l: env(safe-area-inset-left, 0px); --r: env(safe-area-inset-right, 0px); --t: env(safe-area-inset-top, 0px); --b: env(safe-area-inset-bottom, 0px);
+  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3f0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--sky); color: var(--cream); font-family: var(--ui); font-weight: 700; user-select: none; -webkit-user-select: none; }
   canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
   #layer { position: fixed; inset: 0; touch-action: none; }
+  svg { display: block; }
+  .ico { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 
-  #hud { position: fixed; inset: 0; pointer-events: none; }
-  #bars { position: absolute; left: calc(14px + env(safe-area-inset-left)); top: calc(12px + env(safe-area-inset-top)); width: min(38vw, 240px); }
-  .bar { height: 14px; border-radius: 8px; background: rgba(0,0,0,.35); overflow: hidden; margin-bottom: 7px; border: 1.5px solid rgba(255,255,255,.55); }
-  .bar > i { display: block; height: 100%; width: 100%; transition: width .12s linear; }
-  #hp > i { background: linear-gradient(90deg, #e2394b, #ff6b6b); }
-  #st > i { background: linear-gradient(90deg, #f0b429, #ffe066); }
-  #st.low > i { background: linear-gradient(90deg, #ff6a00, #ff9a3d); animation: blink .5s infinite alternate; }
+  #hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s; }
+  body.playing #hud { opacity: 1; }
+
+  /* здоровье и силы */
+  #status { position: absolute; left: calc(12px + var(--l)); top: calc(10px + var(--t)); padding: 8px 12px 9px; border-radius: 16px;
+    background: var(--glass); backdrop-filter: blur(6px); display: grid; gap: 6px; width: min(36vw, 250px); }
+  .row { display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 8px; }
+  .row .ico { width: 18px; height: 18px; }
+  #hpIco { color: var(--hp); fill: var(--hp); stroke: none; }
+  #stIco { color: var(--st); fill: var(--st); stroke: none; }
+  .bar { position: relative; height: 12px; border-radius: 7px; background: rgba(0, 0, 0, 0.35); overflow: hidden; }
+  .bar > i { position: absolute; inset: 0 auto 0 0; width: 100%; border-radius: 7px; transition: width .12s linear; }
+  #hp > i { background: linear-gradient(90deg, #e2394b, var(--hp)); }
+  #st > i { background: linear-gradient(90deg, #f3a81b, var(--st)); }
+  #st::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 2px), rgba(16, 26, 34, 0.55) calc(10% - 2px) 10%); }
+  #st.low > i { background: linear-gradient(90deg, #e04e10, var(--st-low)); animation: blink .45s infinite alternate; }
   @keyframes blink { to { opacity: .45; } }
-  .lbl { font-size: 11px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.6); margin: 0 0 2px 4px; opacity: .9; }
 
-  #alt { position: absolute; right: calc(14px + env(safe-area-inset-right)); top: calc(10px + env(safe-area-inset-top)); text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
-  #alt b { font-size: 26px; display: block; line-height: 1; }
-  #alt span { font-size: 12px; opacity: .9; }
-  #pause { pointer-events: auto; position: absolute; left: 50%; transform: translateX(-50%); top: calc(8px + env(safe-area-inset-top)); width: 44px; height: 36px; border-radius: 10px; border: 0; background: rgba(0,0,0,.3); color: #fff; font-size: 18px; }
+  /* высота, звёзды, время */
+  #info { position: absolute; right: calc(12px + var(--r)); top: calc(8px + var(--t)); text-align: right; text-shadow: 0 2px 6px rgba(0, 0, 0, .45); display: grid; justify-items: end; gap: 2px; }
+  #altV { font: 700 30px/1 var(--display); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+  #altT { font-size: 12px; color: var(--muted); }
+  #chips { display: flex; gap: 6px; margin-top: 4px; }
+  .chip { display: flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--glass); font-size: 13px; font-variant-numeric: tabular-nums; text-shadow: none; }
+  .chip .ico { width: 14px; height: 14px; }
+  #starIco { fill: var(--st); stroke: none; }
+  #starChip.pop { animation: pop .35s ease-out; }
+  @keyframes pop { 40% { transform: scale(1.25); background: rgba(255, 210, 58, .45); } }
 
-  #msg { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); background: rgba(10,20,30,.62); padding: 9px 16px; border-radius: 12px; font-size: 16px; font-weight: 600; opacity: 0; transition: opacity .25s; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
-  #msg.show { opacity: 1; }
-  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 90px 30px rgba(220,30,40,.65); opacity: 0; transition: opacity .35s; }
+  /* полоска высоты: слева море, справа флаг; палатки — лагеря */
+  #track { position: relative; height: 8px; margin: 0 8px 0 4px; border-radius: 4px;
+    background: linear-gradient(90deg, rgba(63, 143, 207, .85), rgba(255, 255, 255, .3) 25%, rgba(255, 255, 255, .55)); }
+  #track .mk { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 16px; height: 16px; color: var(--cream); }
+  #track .mk.done { color: var(--ember-hi); }
+  #track .mk .ico { width: 16px; height: 16px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6)); }
+  #me { position: absolute; top: 50%; z-index: 1; width: 14px; height: 14px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--ember); border: 3px solid var(--cream); box-shadow: 0 0 0 3px rgba(255, 138, 61, .35); }
+  #altIco { color: var(--cream); }
 
-  #joy { position: fixed; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.4); display: none; pointer-events: none; }
-  #knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: rgba(255,255,255,.55); }
-  #joyHint { position: absolute; left: calc(40px + env(safe-area-inset-left)); bottom: calc(40px + env(safe-area-inset-bottom)); width: 110px; height: 110px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.4); display: flex; align-items: center; justify-content: center; font-size: 12px; text-align: center; opacity: .8; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+  #pause { pointer-events: auto; position: absolute; left: 50%; top: calc(8px + var(--t)); transform: translateX(-50%); width: 42px; height: 42px; border-radius: 50%; border: 0;
+    background: var(--glass); color: var(--cream); display: grid; place-items: center; font-size: 18px; }
+  #pause:focus-visible, .btn:focus-visible, .card button:focus-visible { outline: 3px solid var(--ember-hi); outline-offset: 2px; }
 
-  #btns { position: absolute; right: calc(18px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); width: 210px; height: 190px; }
-  .btn { pointer-events: auto; position: absolute; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.75); background: rgba(20,30,40,.35); color: #fff; display: flex; align-items: center; justify-content: center; flex-direction: column; font-size: 30px; touch-action: none; }
-  .btn small { font-size: 10px; font-weight: 700; margin-top: -2px; }
-  .btn.down { background: rgba(255,255,255,.45); }
-  #bGrab { width: 92px; height: 92px; right: 0; bottom: 0; }
-  #bJump { width: 74px; height: 74px; right: 104px; bottom: 6px; }
-  #bRun { width: 58px; height: 58px; right: 20px; bottom: 112px; font-size: 22px; }
-  #bRun.on { background: rgba(255,200,60,.55); }
-  #bGrab.hint { animation: pulse .7s infinite alternate; }
-  #bGrab.active { background: rgba(255,122,61,.65); }
-  @keyframes pulse { to { transform: scale(1.12); background: rgba(255,122,61,.55); } }
+  /* подсказки и сообщения */
+  #toast { position: absolute; left: 50%; top: calc(64px + var(--t)); transform: translate(-50%, -8px); max-width: min(82vw, 560px); padding: 9px 16px; border-radius: 14px;
+    background: var(--glass-strong); font-size: 15px; text-align: center; opacity: 0; transition: opacity .25s, transform .25s; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.hint { border: 1.5px solid var(--ember); }
+  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 90px 30px rgba(220, 30, 40, .6); opacity: 0; transition: opacity .35s; }
 
-  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8,20,32,.55); backdrop-filter: blur(3px); z-index: 10; padding: 16px; }
+  /* прицел крюка */
+  #reticle { position: absolute; left: 0; top: 0; width: 54px; height: 54px; margin: -27px 0 0 -27px; display: none; color: var(--ember-hi); }
+  #reticle.on { display: block; }
+  #reticle .ring { position: absolute; inset: 0; border: 3px solid currentColor; border-radius: 50%; animation: spin 2.4s linear infinite; border-style: dashed; }
+  #reticle .dot { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px; border-radius: 50%; background: currentColor; }
+  #reticle b { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 3px; padding: 1px 7px; border-radius: 999px; background: var(--glass-strong); color: var(--cream); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* джойстик */
+  #joy { position: fixed; width: 128px; height: 128px; margin: -64px 0 0 -64px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, .06), rgba(255, 255, 255, .16));
+    border: 2px solid var(--line); display: none; pointer-events: none; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255, 246, 234, .7); box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }
+  #joyHint { position: absolute; left: calc(36px + var(--l)); bottom: calc(34px + var(--b)); width: 118px; height: 118px; border-radius: 50%; border: 2px dashed var(--line);
+    display: grid; place-items: center; text-align: center; font-size: 12px; color: var(--muted); padding: 18px; }
+
+  /* кнопки */
+  #btns { position: absolute; right: calc(16px + var(--r)); bottom: calc(18px + var(--b)); width: 236px; height: 196px; }
+  .btn { pointer-events: auto; position: absolute; border-radius: 50%; border: 0; color: var(--cream); background: var(--glass); backdrop-filter: blur(6px);
+    display: grid; place-items: center; align-content: center; gap: 1px; touch-action: none; box-shadow: inset 0 0 0 2px var(--line), 0 6px 16px rgba(0, 0, 0, .25); }
+  .btn small { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .btn .ico { width: 34px; height: 34px; }
+  .btn.down { transform: scale(.93); background: rgba(255, 255, 255, .3); }
+  #bHook { width: 104px; height: 104px; right: 0; bottom: 0; }
+  #bHook .ico { width: 44px; height: 44px; }
+  #bHook.ready { background: radial-gradient(circle at 50% 40%, var(--ember-hi), var(--ember) 70%); box-shadow: 0 0 0 4px rgba(255, 179, 92, .45), 0 0 26px rgba(255, 138, 61, .8); }
+  #bHook.ready small, #bHook.on small { color: var(--cream); }
+  #bHook.on { background: #3d8bd4; box-shadow: 0 0 0 4px rgba(120, 190, 255, .45); }
+  #bJump { width: 80px; height: 80px; right: 116px; bottom: 4px; }
+  #bRun { width: 58px; height: 58px; right: 24px; bottom: 124px; }
+  #bRun .ico { width: 24px; height: 24px; }
+  #bRun.on { background: rgba(255, 210, 58, .55); }
+
+  /* экраны */
+  .screen { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap;
+    padding: calc(14px + var(--t)) max(16px, var(--r)) calc(14px + var(--b)) max(16px, var(--l));
+    background: linear-gradient(120deg, rgba(10, 20, 28, .72), rgba(10, 20, 28, .25)); overflow: auto; }
   .screen.show { display: flex; }
-  .card { background: rgba(255,255,255,.95); color: #1d2b36; border-radius: 18px; padding: 20px 24px; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.35); max-height: 92vh; overflow: auto; }
-  .card h1 { margin: 0 0 2px; font-size: 34px; letter-spacing: 1px; color: #e8692f; }
-  .card h2 { margin: 0 0 8px; font-size: 22px; }
-  .card p { margin: 6px 0; font-size: 14px; line-height: 1.4; }
-  .card ul { text-align: left; font-size: 13px; padding-left: 20px; margin: 8px 0; line-height: 1.45; }
-  .card button { margin: 10px 4px 0; padding: 12px 22px; font-size: 17px; font-weight: 700; border: 0; border-radius: 12px; background: #e8692f; color: #fff; }
-  .card button.sec { background: #dfe6ec; color: #1d2b36; }
-  .sub { color: #5d7080; font-size: 13px; }
-  /* телефон боком: карточка пошире, правила в две колонки, кнопка всегда видна */
-  @media (max-height: 520px) {
-    .card { max-width: 760px; padding: 12px 18px; }
-    .card h1 { font-size: 26px; }
-    .card p { margin: 3px 0; font-size: 13px; }
-    .card ul { columns: 2; column-gap: 22px; font-size: 12px; margin: 6px 0; line-height: 1.35; }
-    .card li { break-inside: avoid; margin-bottom: 3px; }
-    .card button { margin-top: 6px; padding: 10px 20px; }
-  }
+  .logo { display: grid; gap: 4px; min-width: 0; }
+  .logo h1 { margin: 0; font: 700 clamp(48px, 11vw, 92px)/0.95 var(--display); letter-spacing: .04em; color: var(--cream);
+    text-shadow: 0 4px 0 #c9541a, 0 10px 30px rgba(0, 0, 0, .35); }
+  .logo p { margin: 0; font-size: 17px; color: var(--muted); }
+  .menu { display: grid; gap: 10px; margin-top: 12px; }
+  .card { background: rgba(255, 250, 243, .96); color: var(--ink); border-radius: 22px; padding: 18px 20px; width: min(440px, 100%); box-shadow: 0 16px 50px rgba(0, 0, 0, .35); }
+  .card h2 { margin: 0 0 8px; font: 700 24px var(--display); text-wrap: balance; }
+  .card p { margin: 6px 0; font-size: 15px; line-height: 1.4; }
+  .how { display: grid; gap: 9px; margin: 6px 0 2px; }
+  .how div { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; font-size: 14px; line-height: 1.3; }
+  .how .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: #ffe8d4; color: #c9541a; }
+  .how .ic .ico { width: 20px; height: 20px; }
+  .primary, .secondary { font: 800 18px var(--ui); border: 0; border-radius: 16px; padding: 13px 26px; cursor: pointer; }
+  .primary { background: linear-gradient(180deg, var(--ember-hi), var(--ember)); color: #fff; box-shadow: 0 5px 0 #c9541a; }
+  .primary:active { transform: translateY(3px); box-shadow: 0 2px 0 #c9541a; }
+  .secondary { background: #e9eef1; color: var(--ink); font-size: 16px; padding: 11px 20px; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 12px; background: rgba(255, 255, 255, .18); gap: 3px; }
+  .card .seg { background: #e9eef1; }
+  .seg button { font: 800 13px var(--ui); border: 0; border-radius: 9px; padding: 7px 11px; background: transparent; color: inherit; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--ember); color: #fff; }
+  .lbl { font-size: 12px; color: var(--muted); letter-spacing: .05em; text-transform: uppercase; }
+  .card .lbl { color: #5d7080; }
+  .best { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .stats { display: flex; gap: 10px; margin: 10px 0; }
+  .stats div { flex: 1; background: #fff1e3; border-radius: 14px; padding: 10px; text-align: center; }
+  .stats b { display: block; font: 700 26px var(--display); font-variant-numeric: tabular-nums; }
+  .stats span { font-size: 12px; color: #5d7080; }
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  @media (max-height: 460px) { .logo h1 { font-size: 64px; } .card { padding: 14px 16px; } .how div { font-size: 13px; } }
+  @media (prefers-reduced-motion: reduce) { #reticle .ring { animation: none; } }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-hook" viewBox="0 0 24 24"><circle cx="12" cy="3.6" r="2" /><path d="M12 5.6V15a4.2 4.2 0 1 1-8.4 0v-1.6M3.6 13.4 1.8 15.6M3.6 13.4l2.2 1.9" /></symbol>
+  <symbol id="i-jump" viewBox="0 0 24 24"><path d="M6 13l6-6 6 6M6 19l6-6 6 6" /></symbol>
+  <symbol id="i-run" viewBox="0 0 24 24"><path d="M5 6l6 6-6 6M12 6l6 6-6 6" /></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.2-4.6-9.6-9.1A5.6 5.6 0 0 1 12 6.1a5.6 5.6 0 0 1 9.6 5.8C19.2 16.4 12 21 12 21z" /></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.5 2 4 14h7l-1.5 8L19 10h-7z" /></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z" /></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14" /></symbol>
+  <symbol id="i-tent" viewBox="0 0 24 24"><path d="M2 20h20L12 4zM12 4v16M9 20l3-6 3 6" /></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></symbol>
+  <symbol id="i-stick" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="3.2" /></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M7 11V5.5a1.5 1.5 0 0 1 3 0V11M10 10V4a1.5 1.5 0 0 1 3 0v6M13 10V5a1.5 1.5 0 0 1 3 0v7M16 11.5V8a1.5 1.5 0 0 1 3 0v5.5A7.5 7.5 0 0 1 11.5 21c-2.6 0-4-1-5.6-3L3.4 14a1.6 1.6 0 0 1 2.4-2L7 13.5" /></symbol>
+</svg>
+
 <div id="layer"></div>
 
 <div id="hud">
-  <div id="bars">
-    <div class="lbl">Здоровье</div><div class="bar" id="hp"><i></i></div>
-    <div class="lbl">Силы</div><div class="bar" id="st"><i></i></div>
+  <div id="status">
+    <div class="row"><svg class="ico" id="hpIco"><use href="#i-heart" /></svg><div class="bar" id="hp"><i></i></div></div>
+    <div class="row"><svg class="ico" id="stIco"><use href="#i-bolt" /></svg><div class="bar" id="st"><i></i></div></div>
+    <div class="row"><svg class="ico" id="altIco"><use href="#i-flag" /></svg><div id="track"><div id="me"></div></div></div>
   </div>
-  <div id="alt"><b id="altV">0 м</b><span id="altT">до вершины 150 м</span><br><span id="time">0:00</span></div>
-  <button id="pause">❚❚</button>
-  <div id="msg"></div>
+  <div id="info">
+    <div id="altV">0 м</div>
+    <div id="altT">до вершины — м</div>
+    <div id="chips">
+      <div class="chip" id="starChip"><svg class="ico" id="starIco"><use href="#i-star" /></svg><span id="stars">0/0</span></div>
+      <div class="chip"><svg class="ico"><use href="#i-clock" /></svg><span id="time">0:00</span></div>
+    </div>
+  </div>
+  <button id="pause" type="button" aria-label="Пауза"><svg class="ico"><use href="#i-pause" /></svg></button>
+  <div id="toast"></div>
   <div id="hurt"></div>
-  <div id="joyHint">палец сюда — идти</div>
+  <div id="reticle"><div class="ring"></div><div class="dot"></div><b id="retD">0 м</b></div>
+  <div id="joyHint">води пальцем — идти</div>
   <div id="btns">
-    <div class="btn" id="bRun">»<small>бег</small></div>
-    <div class="btn" id="bJump">⤒<small>прыжок</small></div>
-    <div class="btn" id="bGrab">✋<small>хват</small></div>
+    <button class="btn" id="bRun" type="button" aria-label="Бег"><svg class="ico"><use href="#i-run" /></svg></button>
+    <button class="btn" id="bJump" type="button"><svg class="ico"><use href="#i-jump" /></svg><small>прыжок</small></button>
+    <button class="btn" id="bHook" type="button"><svg class="ico"><use href="#i-hook" /></svg><small id="hookLbl">крюк</small></button>
   </div>
 </div>
 <div id="joy"><div id="knob"></div></div>
 
-<div class="screen show" id="sStart"><div class="card">
-  <h1>GIVER</h1>
-  <div class="sub">восхождение</div>
-  <p>Ты на берегу острова. Наверху горы — флаг. Доберись до вершины!</p>
-  <ul>
-    <li><b>Левая половина экрана</b> — водишь пальцем, герой идёт. Дотянешь далеко или нажмёшь <b>»</b> — бежит.</li>
-    <li><b>Правая половина</b> — поворот камеры.</li>
-    <li><b>✋ Хват</b> — у скалы: ухватиться и лезть (джойстик вверх). Ещё раз ✋ — отпустить. Можно поймать скалу в падении!</li>
-    <li><b>⤒ Прыжок</b> — на скале это рывок вверх.</li>
-    <li>Лезть, бегать и прыгать тратит <b>силы</b>. Кончатся на скале — сорвёшься. Отдыхай на уступах.</li>
-    <li>🫐 Ягоды возвращают силы, ⛺ лагеря — точки сохранения.</li>
-  </ul>
-  <button id="go">Начать</button>
-  <p class="sub" id="best"></p>
-</div></div>
+<div class="screen show" id="sStart">
+  <div class="logo">
+    <h1>GIVER</h1>
+    <p>восхождение с крюком</p>
+    <div class="menu">
+      <div><button class="primary" id="go" type="button">Играть</button></div>
+      <div class="lbl">Графика</div>
+      <div class="seg" data-quality>
+        <button type="button" data-q="low">Низкая</button><button type="button" data-q="medium">Средняя</button><button type="button" data-q="high">Высокая</button>
+      </div>
+      <div class="best" id="best"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Как играть</h2>
+    <div class="how">
+      <div><span class="ic"><svg class="ico"><use href="#i-stick" /></svg></span><span>Левая половина экрана — идти, правая — повернуть камеру.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-hook" /></svg></span><span>Руками на скалы не залезть. Наведи камеру на светящееся кольцо и жми <b>Крюк</b> — подтянет наверх. Ещё раз — отпустить.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-jump" /></svg></span><span>Прыгай по доскам, батутам-грибам и платформам. На верёвке прыжок — сорваться с разгоном.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-star" /></svg></span><span>Собирай звёзды. Палатки — точки сохранения, ягоды — силы.</span></div>
+    </div>
+  </div>
+</div>
 
 <div class="screen" id="sPause"><div class="card">
   <h2>Пауза</h2>
-  <button id="resume">Продолжить</button>
-  <button class="sec" id="toCamp">В лагерь</button>
-  <button class="sec" id="restart">Заново</button>
-  <button class="sec" id="exit" style="display:none">Выйти</button>
+  <div class="lbl">Графика</div>
+  <div class="seg" data-quality>
+    <button type="button" data-q="low">Низкая</button><button type="button" data-q="medium">Средняя</button><button type="button" data-q="high">Высокая</button>
+  </div>
+  <div class="acts">
+    <button class="primary" id="resume" type="button">Продолжить</button>
+    <button class="secondary" id="toCamp" type="button">В лагерь</button>
+    <button class="secondary" id="restart" type="button">Заново</button>
+    <button class="secondary" id="exit" type="button" hidden>Выйти</button>
+  </div>
 </div></div>
 
 <div class="screen" id="sDead"><div class="card">
-  <h2>Сорвался…</h2>
+  <h2>Ой, сорвался!</h2>
   <p id="deadTxt">Слишком высоко упал.</p>
-  <button id="respawn">Продолжить с лагеря</button>
+  <div class="acts"><button class="primary" id="respawn" type="button">Продолжить</button></div>
 </div></div>
 
 <div class="screen" id="sWin"><div class="card">
-  <h1>Вершина!</h1>
+  <h2>Вершина!</h2>
+  <div class="stats">
+    <div><b id="wTime">0:00</b><span>время</span></div>
+    <div><b id="wStars">0/0</b><span>звёзды</span></div>
+  </div>
   <p id="winTxt"></p>
-  <button id="again">Ещё раз</button>
+  <div class="acts"><button class="primary" id="again" type="button">Ещё раз</button></div>
 </div></div>
 
 <!--GAME-->

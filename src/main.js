@@ -1,98 +1,117 @@
-// Точка входа: сцена, камера, игровой цикл, экраны.
+// Точка входа: гора, маршрут, природа, герой, камера, игровой цикл, экраны и качество графики.
 import * as THREE from 'three';
-import { Terrain } from './terrain.js';
+import { createGfx, terrainMaterial, waterMaterial, QUALITY, QUALITY_ORDER } from './gfx.js';
+import { Terrain, HALF } from './terrain.js';
+import { Course } from './course.js';
 import { World } from './world.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { Hud, fmtTime } from './hud.js';
-import { makeRng } from './noise.js';
+import { loadModels } from './models.js';
+import { Campfire, Fireflies } from './fire.js';
+import { ASSETS, FONTS } from './assets.gen.js';
 
 const SEED = 20261101;
 const SAVE_KEY = 'giver_v1';
+const STEP = 1 / 60;
 const $ = (id) => document.getElementById(id);
 
+installFonts();
 const save = loadSave();
 const hud = new Hud();
+const gfx = createGfx();
+const { scene, camera } = gfx;
 
-const renderer = new THREE.WebGLRenderer({ antialias: window.devicePixelRatio < 2, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.prepend(renderer.domElement);
-
-const scene = new THREE.Scene();
-const SKY = new THREE.Color('#9fd3f0');
-scene.background = SKY;
-scene.fog = new THREE.Fog(SKY, 70, 300);
-const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 900);
-
-scene.add(new THREE.HemisphereLight('#d8ecff', '#56663a', 1.6));
-const sun = new THREE.DirectionalLight('#fff1d6', 2.4);
-sun.position.set(80, 140, 60);
-scene.add(sun);
-
+// ——— мир ———
 const terrain = new Terrain(SEED);
-scene.add(terrain.buildMesh());
-const world = new World(scene, terrain, SEED);
-addClouds(scene, terrain);
+const start = findStart(terrain);
+const course = new Course(terrain, start, SEED);          // заодно выравнивает площадки под лагеря
+gfx.terrainMat = terrainMaterial();
+scene.add(terrain.buildMesh(gfx.terrainMat));
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), waterMaterial());
+sea.rotation.x = -Math.PI / 2;
+sea.position.y = 0.05;
+scene.add(sea);
 
 const game = {
-  running: false, paused: false, won: false,
-  elapsed: 0,
-  checkpoint: world.start.clone(),
-  campName: 'берег',
+  running: false, paused: false, won: false, elapsed: 0, stars: 0, starsTotal: 0,
+  checkpoint: start.clone(), campName: 'берег',
 };
-
-const player = new Player(scene, terrain, world, {
+const events = {
   message: (t) => hud.message(t),
-  hurt: (dmg) => { hud.hurt(); if (dmg >= 10) hud.message(`Ушибся: −${dmg}`); },
+  hint: (t) => hud.message(t, 4.5, true),
+  hurt: (dmg) => { hud.hurt(); if (dmg >= 10 && dmg < 1000) hud.message(`Ушибся: −${dmg}`); },
   died: () => {
     game.running = false;
     $('deadTxt').textContent = `Слишком сильно ударился. Вернёшься: ${game.campName}.`;
-    hud.screen('sDead', true);
+    setTimeout(() => hud.screen('sDead', true), 500);
+    document.body.classList.remove('playing');
   },
-  berries: () => hud.message('🫐 Ягоды! Силы восстановлены'),
+  berries: () => hud.message('Ягоды! Силы полные'),
   camp: (c) => {
-    game.checkpoint.set(c.x, c.y, c.z);
+    game.checkpoint.copy(c.pos);
     game.campName = `лагерь ${c.index + 1}`;
-    hud.message(`⛺ Лагерь ${c.index + 1} — сюда вернёшься, если сорвёшься`, 3);
+    hud.message(`Лагерь ${c.index + 1} — сюда вернёшься, если сорвёшься`, 3);
   },
+  star: () => { game.stars++; hud.starPop(); if (game.stars === game.starsTotal) hud.message('Все звёзды собраны!', 3); },
   summit: () => win(),
-});
-player.spawn(world.start);
+};
 
-// камера: вращается вокруг героя
-const cam = { yaw: 0, pitch: 0.2, dist: 7 };
-cam.yaw = Math.atan2(world.start.x - terrain.summit.x, world.start.z - terrain.summit.z);
-player.facing = cam.yaw + Math.PI;
-
+let world = null, player = null;
+const fires = [], flies = [];
+const cam = { yaw: Math.atan2(start.x - terrain.summit.x, start.z - terrain.summit.z), pitch: 0.18, dist: 7.5 };
 const input = new Input($('layer'), hud);
 
-// ——— экраны ———
-if (save.best) $('best').textContent = `Лучшее время: ${fmtTime(save.best)}`;
-$('go').onclick = () => { hud.screen('sStart', false); game.running = true; };
+loadModels().then((models) => {
+  course.build(scene, models);
+  world = new World(scene, terrain, models, course, SEED, gfx);
+  player = new Player(scene, terrain, world, course, events);
+  player.spawn(start);
+  player.facing = cam.yaw + Math.PI;
+  for (const c of course.camps) { fires.push(new Campfire(scene, c.fire)); flies.push(new Fireflies(scene, c.pos, 14, 7)); }
+  game.starsTotal = course.stars.length;
+  hud.setupTrack(terrain.summit.y, course.camps);
+  setQuality(save.quality || 'medium', false);
+  camera.position.set(start.x, start.y + 4, start.z + 9);
+  document.body.classList.add('ready');
+  requestAnimationFrame(frame);
+  window.__giver = { game, player, terrain, course, world, cam, input, gfx, setQuality, step: (inp) => stepOnce(inp) };
+});
+
+// ——— экраны и кнопки ———
+if (save.best) $('best').textContent = `Рекорд: ${fmtTime(save.best)} · звёзд ${save.bestStars || 0}`;
+$('go').onclick = () => {
+  hud.screen('sStart', false);
+  game.running = true;
+  document.body.classList.add('playing');
+  hud.message('Иди к скале: на краю светится кольцо для крюка', 4, true);
+};
 $('pause').onclick = () => setPaused(true);
 $('resume').onclick = () => setPaused(false);
-$('restart').onclick = () => { location.reload(); };
+$('restart').onclick = () => location.reload();
 $('toCamp').onclick = () => { setPaused(false); respawn(); };
-$('respawn').onclick = () => { hud.screen('sDead', false); respawn(); game.running = true; };
+$('respawn').onclick = () => { hud.screen('sDead', false); respawn(); game.running = true; document.body.classList.add('playing'); };
 $('again').onclick = () => location.reload();
 if (window.AndroidBridge && window.AndroidBridge.exit) {
-  $('exit').style.display = '';
+  $('exit').hidden = false;
   $('exit').onclick = () => window.AndroidBridge.exit();
 }
-// кнопка «Назад» на Android: пауза, повторно — продолжить
+document.querySelectorAll('[data-quality] button').forEach((b) => { b.onclick = () => setQuality(b.dataset.q, true); });
+// кнопка «Назад» на Android: пауза / продолжить
 window.__onBack = () => {
   if (!game.running && !game.paused) return false;
   setPaused(!game.paused);
   return true;
 };
 document.addEventListener('visibilitychange', () => { if (document.hidden && game.running) setPaused(true); });
+window.addEventListener('resize', () => gfx.resize());
 
 function setPaused(p) {
-  if (game.won) return;
+  if (game.won || (!game.running && !game.paused)) return;
   game.paused = p;
   game.running = !p;
   hud.screen('sPause', p);
+  document.body.classList.toggle('playing', !p);
   input.reset();
 }
 
@@ -101,108 +120,120 @@ function respawn() {
   hud.message(`Ты снова: ${game.campName}`);
 }
 
+function setQuality(key, remember) {
+  if (!QUALITY[key]) key = 'medium';
+  gfx.setQuality(key);
+  document.querySelectorAll('[data-quality] button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.q === key)));
+  if (remember) { save.quality = key; writeSave(); slowTime = 0; }
+}
+
 function win() {
   if (game.won) return;
   game.won = true;
   game.running = false;
-  const best = save.best ? Math.min(save.best, game.elapsed) : game.elapsed;
   const isRecord = !save.best || game.elapsed < save.best;
-  save.best = best;
+  if (isRecord) save.best = game.elapsed;
+  save.bestStars = Math.max(save.bestStars || 0, game.stars);
   writeSave();
-  $('winTxt').innerHTML = `Ты поднялся на ${Math.round(terrain.summit.y)} м за <b>${fmtTime(game.elapsed)}</b>.` +
-    (isRecord ? '<br>Это новый рекорд!' : `<br>Рекорд: ${fmtTime(best)}`);
+  $('wTime').textContent = fmtTime(game.elapsed);
+  $('wStars').textContent = `${game.stars}/${game.starsTotal}`;
+  $('winTxt').textContent = isRecord ? 'Новый рекорд!' : `Рекорд: ${fmtTime(save.best)}`;
+  document.body.classList.remove('playing');
   setTimeout(() => hud.screen('sWin', true), 900);
 }
 
 // ——— цикл ———
-const STEP = 1 / 60;
-let acc = 0, last = performance.now(), clock = 0;
-const target = new THREE.Vector3(), camPos = new THREE.Vector3();
+let acc = 0, last = performance.now(), clock = 0, courseTime = 0, slowTime = 0, slowCheck = 0;
+const target = new THREE.Vector3(), camPos = new THREE.Vector3(), camDir = new THREE.Vector3();
+const NO_BUTTONS = { jump: false, hook: false };
+
+function stepOnce(inp) {
+  courseTime += STEP;
+  course.update(courseTime, STEP);
+  player.carry();
+  player.update(STEP, inp, cam.yaw);
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.1, (now - last) / 1000);
+  const raw = (now - last) / 1000;
   last = now;
+  const dt = Math.min(0.1, raw);
   clock += dt;
   const inp = input.read();
   if (game.running) {
     game.elapsed += dt;
+    cam.yaw -= inp.camDX * 0.006;
+    cam.pitch = Math.max(-0.55, Math.min(1.2, cam.pitch + inp.camDY * 0.005));
+    camera.getWorldDirection(camDir);
+    player.pickTarget(camDir);
     acc += dt;
     let first = true;
     while (acc >= STEP) {
-      // нажатия кнопок — только в первом шаге кадра
-      player.update(STEP, first ? inp : { ...inp, jump: false, grab: false }, cam.yaw);
+      stepOnce(first ? inp : { ...inp, ...NO_BUTTONS });
       first = false;
       acc -= STEP;
     }
-    cam.yaw -= inp.camDX * 0.006;
-    cam.pitch = Math.max(-0.35, Math.min(1.25, cam.pitch + inp.camDY * 0.005));
-    // на скале камера сама плавно заходит за спину
-    if (player.climbing && !inp.looking) {
-      let d = player.facing + Math.PI - cam.yaw;
-      d = Math.atan2(Math.sin(d), Math.cos(d));
-      cam.yaw += d * Math.min(1, dt * 1.5);
-    }
+    adaptQuality(raw);
+  } else if (player) {
+    course.update(courseTime += dt, dt);
   }
+  if (!player) return;
+  player.animate(dt);
   world.update(clock);
+  const scale = gfx.pixelScale();
+  fires.forEach((f) => f.update(clock, scale));
+  flies.forEach((f) => f.update(clock, scale));
+  sea.material.uniforms.uTime.value = clock;
   updateCamera(dt);
-  hud.update(dt, player, terrain.summit.y, game.elapsed);
-  renderer.render(scene, camera);
+  gfx.follow(player.pos);
+  hud.update(dt, player, game, camera);
+  gfx.render(dt);
 }
 
 function updateCamera(dt) {
   target.copy(player.pos);
-  target.y += 1.5;
+  target.y += 1.6;
   const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
   let dist = cam.dist;
   // не заглядывать сквозь гору
-  for (let i = 1; i <= 10; i++) {
-    const d = (cam.dist * i) / 10;
-    const x = target.x + Math.sin(cam.yaw) * cp * d, z = target.z + Math.cos(cam.yaw) * cp * d;
-    const y = target.y + sp * d;
-    if (terrain.heightAt(x, z) > y - 0.4) { dist = Math.max(1.2, d - 0.6); break; }
+  for (let i = 1; i <= 12; i++) {
+    const d = (cam.dist * i) / 12;
+    const x = target.x + Math.sin(cam.yaw) * cp * d, z = target.z + Math.cos(cam.yaw) * cp * d, y = target.y + sp * d;
+    if (terrain.heightAt(x, z) > y - 0.35) { dist = Math.max(1.4, d - 0.6); break; }
   }
   camPos.set(target.x + Math.sin(cam.yaw) * cp * dist, target.y + sp * dist, target.z + Math.cos(cam.yaw) * cp * dist);
   const g = terrain.heightAt(camPos.x, camPos.z);
   if (camPos.y < g + 0.5) camPos.y = g + 0.5;
-  if (camPos.y < 0.4) camPos.y = 0.4;
+  if (camPos.y < 0.5) camPos.y = 0.5;
   camera.position.lerp(camPos, Math.min(1, dt * 12));
   camera.lookAt(target);
 }
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+// если телефон не тянет — сами снижаем качество (один раз за уровень)
+function adaptQuality(raw) {
+  if (window.__noAdapt) return;
+  slowCheck += raw;
+  slowTime = raw > 0.045 ? slowTime + raw : Math.max(0, slowTime - raw * 0.5);
+  if (slowCheck < 4 || slowTime < 3) return;
+  const i = QUALITY_ORDER.indexOf(gfx.quality);
+  if (i <= 0) return;
+  setQuality(QUALITY_ORDER[i - 1], true);
+  hud.message(`Графика: ${QUALITY[QUALITY_ORDER[i - 1]].name.toLowerCase()} — чтобы не тормозило`, 3);
+  slowTime = 0;
+}
 
-camera.position.set(world.start.x, world.start.y + 6, world.start.z + 8);
-requestAnimationFrame(frame);
+function findStart(t) {
+  let z = HALF - 4;
+  for (let s = HALF - 4; s > 0; s -= 0.5) if (t.heightAt(0, s) > 1.2) { z = s - 2; break; }
+  return new THREE.Vector3(0, t.heightAt(0, z), z);
+}
 
-// для проверки из браузера
-window.__giver = { game, player, terrain, world, cam, input, step: (inp) => player.update(STEP, inp, cam.yaw) };
-
-function addClouds(scene, terrain) {
-  const rng = makeRng(SEED + 7);
-  const geo = new THREE.IcosahedronGeometry(1, 1);
-  const mat = new THREE.MeshLambertMaterial({ color: '#ffffff', flatShading: true, transparent: true, opacity: 0.92 });
-  const count = 26 * 5;
-  const mesh = new THREE.InstancedMesh(geo, mat, count);
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
-  let k = 0;
-  for (let c = 0; c < 26; c++) {
-    const a = rng() * Math.PI * 2, r = 70 + rng() * 170;
-    const cx = terrain.summit.x + Math.cos(a) * r, cz = terrain.summit.z + Math.sin(a) * r;
-    const cy = 95 + rng() * 60;
-    for (let i = 0; i < 5; i++) {
-      p.set(cx + (rng() - 0.5) * 16, cy + (rng() - 0.5) * 3, cz + (rng() - 0.5) * 10);
-      const sz = 4 + rng() * 5;
-      s.set(sz * 1.4, sz * 0.6, sz);
-      m.compose(p, q, s);
-      mesh.setMatrixAt(k++, m);
-    }
-  }
-  scene.add(mesh);
+function installFonts() {
+  const css = FONTS.map((f) => `@font-face{font-family:"${f.family}";font-weight:${f.weight};font-style:normal;font-display:swap;src:url(${ASSETS[f.file]}) format("woff2");unicode-range:${f.range};}`).join('');
+  const st = document.createElement('style');
+  st.textContent = css;
+  document.head.appendChild(st);
 }
 
 function loadSave() {

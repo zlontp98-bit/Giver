@@ -1,6 +1,6 @@
 // Остров с горой: сетка высот, по ней и рисуется рельеф, и ходит/лазает герой.
 import * as THREE from 'three';
-import { makeNoise2D, makeRng, fbm, smoothstep, clamp } from './noise.js';
+import { makeNoise2D, fbm, smoothstep, clamp } from './noise.js';
 
 export const WORLD = 384;            // размер острова, м
 export const N = 256;                // клеток по стороне
@@ -56,53 +56,55 @@ export class Terrain {
     return this.normalAt(x, z, _n).y > WALKABLE_NY;
   }
 
-  buildMesh() {
+  // Выровнять площадку (лагерь, старт): к высоте c.y внутри r0, плавно до r1.
+  flatten(c, r0, r1) {
     const S = N + 1;
-    const pos = new Float32Array(S * S * 3);
-    const col = new Float32Array(S * S * 3);
-    const rng = makeRng(this.seed + 5);
+    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+      const x = -HALF + i * CELL, z = -HALF + j * CELL;
+      const d = Math.hypot(x - c.x, z - c.z);
+      if (d > r1) continue;
+      const w = 1 - smoothstep(r0, r1, d);
+      const k = j * S + i;
+      this.h[k] += (c.y - this.h[k]) * w;
+    }
+  }
+
+  // Геометрия горы: гладкая, цвета по высоте (дальше их дополняет шейдер в gfx.js).
+  buildMesh(material) {
+    const S = N + 1;
+    const pos = new Float32Array(S * S * 3), col = new Float32Array(S * S * 3);
     const c = new THREE.Color();
-    const sand = new THREE.Color('#d8c48f'), wetSand = new THREE.Color('#b9a46e');
-    const grass = new THREE.Color('#63a04a'), forest = new THREE.Color('#4a8238');
-    const alpine = new THREE.Color('#93a064'), rock = new THREE.Color('#857a6d');
-    const rockHi = new THREE.Color('#8f8f94'), snow = new THREE.Color('#f1f4f8');
-    const n = new THREE.Vector3();
-    for (let j = 0; j < S; j++) {
-      for (let i = 0; i < S; i++) {
-        const k = j * S + i;
-        const x = -HALF + i * CELL, z = -HALF + j * CELL, y = this.h[k];
-        pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z;
-        this.normalAt(x, z, n);
-        const steep = n.y < WALKABLE_NY + 0.04;
-        if (y < 0.6) c.copy(wetSand);
-        else if (y < 2.2) c.copy(sand).lerp(grass, smoothstep(1.4, 2.2, y));
-        else if (steep) c.copy(rock).lerp(rockHi, smoothstep(40, 120, y));
-        else if (y < 45) c.copy(grass).lerp(forest, smoothstep(6, 30, y));
-        else if (y < 105) c.copy(forest).lerp(alpine, smoothstep(45, 80, y));
-        else c.copy(alpine).lerp(snow, smoothstep(105, 118, y));
-        if (y > 122 && !steep) c.copy(snow);
-        const v = 0.93 + rng() * 0.1;
-        col[k * 3] = c.r * v; col[k * 3 + 1] = c.g * v; col[k * 3 + 2] = c.b * v;
-      }
+    const P = {
+      wet: new THREE.Color('#c9ad80'), sand: new THREE.Color('#efd8a6'), grass: new THREE.Color('#93cc5c'),
+      forest: new THREE.Color('#5ea24a'), alpine: new THREE.Color('#a8b46c'), snow: new THREE.Color('#f5f8fb'),
+    };
+    for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+      const k = j * S + i, x = -HALF + i * CELL, z = -HALF + j * CELL, y = this.h[k];
+      pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z;
+      if (y < 0.5) c.copy(P.wet);
+      else if (y < 2.6) c.copy(P.sand).lerp(P.grass, smoothstep(1.7, 2.6, y));
+      else if (y < 45) c.copy(P.grass).lerp(P.forest, smoothstep(6, 32, y));
+      else if (y < 108) c.copy(P.forest).lerp(P.alpine, smoothstep(48, 85, y));
+      else c.copy(P.alpine).lerp(P.snow, smoothstep(108, 120, y));
+      col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b;
     }
     // те же треугольники, что в heightAt: диагональ из (i+1,j) в (i,j+1)
     const idx = new Uint32Array(N * N * 6);
     let p = 0;
-    for (let j = 0; j < N; j++) {
-      for (let i = 0; i < N; i++) {
-        const a = j * S + i, b = a + 1, d = a + S, e = d + 1;
-        idx[p++] = a; idx[p++] = d; idx[p++] = b;
-        idx[p++] = b; idx[p++] = d; idx[p++] = e;
-      }
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const a = j * S + i, b = a + 1, d = a + S, e = d + 1;
+      idx[p++] = a; idx[p++] = d; idx[p++] = b;
+      idx[p++] = b; idx[p++] = d; idx[p++] = e;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeVertexNormals();
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = new THREE.Mesh(geo, material);
     mesh.name = 'terrain';
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
     return mesh;
   }
 }
@@ -110,8 +112,10 @@ export class Terrain {
 const _n = new THREE.Vector3();
 
 // Форма острова: низина с пляжем, в середине гора из уступов (полка — стена — полка…).
+export const MOUNT = { x: 0, z: -12 };   // центр горы (вершина может быть чуть в стороне)
+
 function rawHeight(x, z, nA, nB, nC) {
-  const cx = 0, cz = -12;
+  const cx = MOUNT.x, cz = MOUNT.z;
   const dx = x - cx, dz = z - cz;
   const ang = Math.atan2(dz, dx);
   let r = Math.hypot(dx, dz);
@@ -131,12 +135,12 @@ function rawHeight(x, z, nA, nB, nC) {
     const off = 5 * fbm(nA, x / 35 + 20, z / 35, 2);
     const t = (m - base + off) / stepH;
     const k = Math.floor(t), f = t - k;
-    // 72% ширины ступени — пологая полка (18% высоты), остальное — крутая стена
-    const g = f < 0.72 ? f * (0.18 / 0.72) : 0.18 + ((f - 0.72) / 0.28) * 0.82;
+    // 80% ширины ступени — широкая пологая полка (15% высоты), остальное — крутая стена
+    const g = f < 0.8 ? f * (0.15 / 0.8) : 0.15 + ((f - 0.8) / 0.2) * 0.85;
     m = Math.max(base, base + (k + g) * stepH - off);
   }
   // плоская площадка на вершине — чтобы было где постоять с флагом
-  h += Math.min(Math.max(0, m), PEAK - 9);
+  h += Math.min(Math.max(0, m), PEAK - 12);
   h += 0.5 * nC(x / 5.5, z / 5.5) + 0.25 * nA(x / 2.3, z / 2.3);
   return h;
 }

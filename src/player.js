@@ -1,302 +1,361 @@
-// Герой: ходит, бегает, прыгает, цепляется за скалы и лезет, пока хватает сил.
+// Герой: ходит, бегает, прыгает по доскам и платформам, стреляет крюком в кольца и подтягивается.
+// Руками по стенам не лазает — вверх только крюком, прыжками, батутом или на лифте.
 import * as THREE from 'three';
 import { WALKABLE_NY, HALF } from './terrain.js';
+import { PLAYER_R } from './course.js';
+import { makeHero } from './hero.js';
 
-const GRAVITY = 22;
-const WALK = 4.2, RUN = 7.0;
-const CLIMB_SPEED = 1.7, LUNGE_SPEED = 6.5;
-const SAFE_FALL = 6;           // с такой высоты падать не больно
-const UP = new THREE.Vector3(0, 1, 0);
-
-export const COST = {
-  jump: 8,
-  grabInAir: 6,
-  lunge: 18,
-  runPerSec: 11,
-  climbPerSec: 6.5,
-  hangPerSec: 2.5,
-  regenPerSec: 15,
-};
+const G = 22, WALK = 4.6, RUN = 7.2, JUMP = 7.2;
+const SAFE_FALL = 7;
+export const HOOK_RANGE = 28;
+const HOOK_FLY = 70, REEL = 9, ROPE_MIN = 0.9, HANDS = 1.5;
+export const COST = { run: 9, jump: 3, hook: 10, hang: 2.5, regen: 18 };
 
 export class Player {
-  constructor(scene, terrain, world, events) {
-    this.t = terrain;
-    this.world = world;
-    this.ev = events;              // колбэки: message(text), hurt(dmg), died(), camp(c), berries(), summit()
-    this.pos = new THREE.Vector3();
-    this.vel = new THREE.Vector3();
+  constructor(scene, terrain, world, course, events) {
+    this.t = terrain; this.world = world; this.course = course; this.ev = events;
+    this.pos = new THREE.Vector3(); this.vel = new THREE.Vector3();
     this.state = 'ground';
     this.facing = Math.PI;
-    this.health = 100;
-    this.stamina = 100;
-    this.peakY = 0;
-    this.restTimer = 0;
-    this.lunge = 0;
-    this.wallPush = 0;             // сколько упираемся в стену (подсказка «✋»)
-    this.walkPhase = 0;
-    this.climbPhase = 0;
-    this.normal = new THREE.Vector3(0, 1, 0);
-    this.model = makeModel();
-    scene.add(this.model.root);
-    this.shadow = makeShadow();
+    this.health = 100; this.stamina = 100;
+    this.peakY = 0; this.restTimer = 0; this.prevY = 0;
+    this.onBox = null; this.assist = null; this.mantle = null; this.flingSpeed = 0;
+    this.hook = null;   // крюк летит: {anchor, t, dur}
+    this.rope = null;   // висим: {anchor, len}
+    this.target = null; // на какое кольцо смотрим
+    this.walkPhase = 0; this.squash = 0; this.time = 0;
+    this.hero = makeHero();
+    scene.add(this.hero.root);
+    // верёвка и крюк
+    const rg = new THREE.CylinderGeometry(0.03, 0.03, 1, 6, 1, true);
+    rg.translate(0, 0.5, 0);
+    rg.rotateX(Math.PI / 2);
+    this.ropeMesh = new THREE.Mesh(rg, new THREE.MeshLambertMaterial({ color: '#7a5532' }));
+    this.ropeMesh.visible = false;
+    this.hookHead = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.28, 8), new THREE.MeshLambertMaterial({ color: '#3d434c' }));
+    this.hookHead.visible = false;
+    scene.add(this.ropeMesh, this.hookHead);
+    const sg = new THREE.CircleGeometry(0.42, 16);
+    sg.rotateX(-Math.PI / 2);
+    this.shadow = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.25, depthWrite: false }));
     scene.add(this.shadow);
   }
 
   spawn(p) {
     this.pos.copy(p);
-    this.pos.y = this.t.heightAt(p.x, p.z);
+    this.pos.y = Math.max(this.t.heightAt(p.x, p.z), p.y);
+    this.pos.y = this.supportAt(this.pos, 0.5).y;
     this.vel.set(0, 0, 0);
     this.state = 'ground';
-    this.health = 100;
-    this.stamina = 100;
-    this.lunge = 0;
+    this.health = 100; this.stamina = 100;
+    this.hook = null; this.rope = null; this.assist = null; this.mantle = null; this.onBox = null;
     this.dead = false;
   }
 
-  get climbing() { return this.state === 'climb'; }
-  get forward() { return _f.set(Math.sin(this.facing), 0, Math.cos(this.facing)); }
+  get hands() { return _h.copy(this.pos).setY(this.pos.y + HANDS); }
 
   update(dt, input, camYaw) {
     if (this.dead) return;
-    // направление движения от камеры
+    this.time += dt;
     const F = _a.set(-Math.sin(camYaw), 0, -Math.cos(camYaw));
     const R = _b.set(Math.cos(camYaw), 0, -Math.sin(camYaw));
     const move = _m.set(0, 0, 0).addScaledVector(F, input.my).addScaledVector(R, input.mx);
     const amount = Math.min(1, move.length());
     if (amount > 0.01) move.divideScalar(move.length());
+    this.prevY = this.pos.y;
+    const was = this.state;
 
-    const wasState = this.state;
-    switch (this.state) {
-      case 'ground': this.updateGround(dt, input, move, amount); break;
-      case 'air': this.updateAir(dt, input, move, amount); break;
-      case 'slide': this.updateSlide(dt, input, move); break;
-      case 'climb': this.updateClimb(dt, input); break;
+    if (this.state === 'ground') this.updateGround(dt, input, move, amount);
+    else if (this.state === 'air') this.updateAir(dt, input, move, amount);
+    else if (this.state === 'slide') this.updateSlide(dt, input, move);
+    else if (this.state === 'rope') this.updateRope(dt, input, move, amount);
+    else if (this.state === 'mantle') this.updateMantle(dt);
+
+    if (was !== this.state && (this.state === 'air' || this.state === 'slide') && (was === 'ground' || was === 'mantle')) this.peakY = this.pos.y;
+    if (this.state === 'rope') this.peakY = this.pos.y;
+
+    // крюк летит к кольцу
+    if (this.hook) {
+      this.hook.t += dt;
+      if (this.hook.t >= this.hook.dur) this.attach();
     }
-    // высоту падения считаем с момента, как ушли с земли или со скалы
-    if (wasState !== this.state && (this.state === 'air' || this.state === 'slide') &&
-        (wasState === 'ground' || wasState === 'climb')) this.peakY = this.pos.y;
-
-    // упираемся в скалу — подсказка нажать «хват»
-    if ((this.state === 'ground' || this.state === 'slide') && amount > 0.3 && this.wallAhead(move)) {
-      this.wallPush = Math.min(1, this.wallPush + dt * 3);
-    } else {
-      this.wallPush = Math.max(0, this.wallPush - dt * 2);
-    }
-
-    // не уплыть за край света
     const r = Math.hypot(this.pos.x, this.pos.z), lim = HALF - 3;
     if (r > lim) { this.pos.x *= lim / r; this.pos.z *= lim / r; }
-
-    // силы восстанавливаются на земле, если их какое-то время не тратить
+    // силы возвращаются на земле
     this.restTimer += dt;
-    if ((this.state === 'ground' || this.state === 'slide') && this.restTimer > 0.7) {
-      this.stamina = Math.min(100, this.stamina + COST.regenPerSec * dt);
-    }
+    if ((this.state === 'ground' || this.state === 'slide') && this.restTimer > 0.6) this.stamina = Math.min(100, this.stamina + COST.regen * dt);
+    if (this.pos.y < -30) this.hurt(1000);
     this.checkPickups();
-    this.animate(dt, amount);
+  }
+
+  // ——— земля ———
+  supportAt(p, step = 0.35) {
+    const th = this.t.heightAt(p.x, p.z);
+    const floor = Math.max(th, -0.9);
+    const b = this.course.support(p.x, p.z, p.y, step);
+    if (b && (b.top >= floor - 0.01 || floor > p.y + step)) return { y: b.top, box: b.box, steep: false };
+    const steep = th > -0.9 && this.t.normalAt(p.x, p.z, _n).y < WALKABLE_NY - 0.06;
+    return { y: floor, box: null, steep };
   }
 
   updateGround(dt, input, move, amount) {
     const t = this.t, p = this.pos;
-    const deep = t.heightAt(p.x, p.z) < -0.9;
+    const deep = t.heightAt(p.x, p.z) < -0.9 && !this.onBox;
     const running = input.run && amount > 0.5 && this.stamina > 1 && !deep;
     const speed = deep ? 2.2 : running ? RUN : WALK;
-    if (running) this.spend(COST.runPerSec * dt);
+    if (running) this.spend(COST.run * dt);
     const k = Math.min(1, 12 * dt);
     this.vel.x += (move.x * speed * amount - this.vel.x) * k;
     this.vel.z += (move.z * speed * amount - this.vel.z) * k;
+    this.vel.y = 0;
     if (amount > 0.05) this.turnTo(Math.atan2(move.x, move.z), dt, 12);
 
     let nx = p.x + this.vel.x * dt, nz = p.z + this.vel.z * dt;
-    let nh = t.heightAt(nx, nz);
-    const n = t.normalAt(nx, nz, _n);
-    if (n.y < WALKABLE_NY && nh > p.y + 0.05) {
-      // упёрлись в скалу: скользим вдоль неё
-      const up = _u.set(-n.x, 0, -n.z).normalize();
+    // упёрлись в крутую стену — скользим вдоль неё
+    if (t.heightAt(nx, nz) > p.y + 0.3 && t.normalAt(nx, nz, _n).y < WALKABLE_NY) {
+      const up = _u.set(-_n.x, 0, -_n.z).normalize();
       const into = this.vel.x * up.x + this.vel.z * up.z;
       if (into > 0) { this.vel.x -= up.x * into; this.vel.z -= up.z * into; }
       nx = p.x + this.vel.x * dt; nz = p.z + this.vel.z * dt;
-      nh = t.heightAt(nx, nz);
-      if (t.normalAt(nx, nz, _n).y < WALKABLE_NY && nh > p.y + 0.05) { nx = p.x; nz = p.z; nh = t.heightAt(nx, nz); }
+      if (t.heightAt(nx, nz) > p.y + 0.3 && t.normalAt(nx, nz, _n).y < WALKABLE_NY) { nx = p.x; nz = p.z; }
     }
     p.x = nx; p.z = nz;
-    this.world.pushOut(p, 0.35);
-    nh = t.heightAt(p.x, p.z);
-    const floor = Math.max(nh, -0.9);
-    if (floor < p.y - 0.6) {                 // шагнули с уступа
-      this.state = 'air';
-      this.vel.y = 0;
+    this.world.pushOut(p, PLAYER_R);
+    this.course.pushOut(p, this.vel);
+    const sup = this.supportAt(p);
+    if (sup.y < p.y - 0.6) {                 // сошли с края
+      this.state = 'air'; this.onBox = null;
     } else {
-      p.y = floor;
-      // съезжаем, только если заметно круче порога (иначе дёргается на границе)
-      if (nh > -0.9 && t.normalAt(p.x, p.z, _n).y < WALKABLE_NY - 0.06) this.state = 'slide';
+      p.y = sup.y;
+      this.onBox = sup.box;
+      if (sup.steep) this.state = 'slide';
+      if (sup.box && sup.box.kind === 'pad') { this.bounce(sup.box); return; }
     }
-    if (input.grab) this.tryGrab();
-    if (input.jump && this.state === 'ground') {
-      if (this.stamina >= COST.jump) {
-        this.spend(COST.jump);
-        this.vel.y = 6.6;
-        this.state = 'air';
-      } else this.ev.message('Нет сил прыгнуть');
-    }
+    if (input.hook) this.fireHook();
+    if (input.jump && this.state === 'ground') this.jump();
   }
 
+  jump() {
+    if (this.stamina < COST.jump) { this.ev.message('Нет сил прыгнуть — отдохни'); return; }
+    this.spend(COST.jump);
+    this.vel.y = JUMP;
+    this.state = 'air';
+    this.onBox = null;
+  }
+
+  bounce(pad) {
+    this.vel.set(0, pad.bounce.vy, 0);
+    this.assist = { target: pad.bounce.target.clone() };
+    this.state = 'air';
+    this.onBox = null;
+    this.squash = 1;
+    this.peakY = -1e9;          // батут не ранит: приземление на верхний уступ мягкое
+    if (this.ev.bounce) this.ev.bounce();
+  }
+
+  // ——— в воздухе ———
   updateAir(dt, input, move, amount) {
     const t = this.t, p = this.pos;
-    this.vel.y -= GRAVITY * dt;
-    this.vel.x += move.x * amount * 7 * dt;
-    this.vel.z += move.z * amount * 7 * dt;
-    const hs = Math.hypot(this.vel.x, this.vel.z);
-    if (hs > RUN) { this.vel.x *= RUN / hs; this.vel.z *= RUN / hs; }
-    if (amount > 0.05) this.turnTo(Math.atan2(move.x, move.z), dt, 5);
-
+    this.vel.y -= G * dt;
+    if (this.assist) {
+      // батут: сначала строго вверх вдоль стены, а когда поднялись выше края — летим к уступу
+      // с такой скоростью, чтобы успеть долететь, пока падаем обратно до его высоты
+      const a = this.assist.target;
+      const dx = a.x - p.x, dz = a.z - p.z, d = Math.hypot(dx, dz) || 1;
+      if (!this.assist.go && p.y > a.y + 0.8) this.assist.go = true;
+      if (!this.assist.go) { this.vel.x = 0; this.vel.z = 0; }
+      else {
+        const vy = this.vel.y, h = Math.max(0.05, p.y - a.y);
+        const tLeft = (vy + Math.sqrt(vy * vy + 2 * G * h)) / G;
+        const sp = Math.min(10, (d / Math.max(0.15, tLeft)) * 1.05);
+        this.vel.x = (dx / d) * sp; this.vel.z = (dz / d) * sp;
+        this.flingSpeed = sp;
+        if (d < 0.4) this.assist = null;
+      }
+    } else {
+      this.vel.x += move.x * amount * 9 * dt;
+      this.vel.z += move.z * amount * 9 * dt;
+      const hs = Math.hypot(this.vel.x, this.vel.z), cap = Math.max(RUN, this.flingSpeed);
+      if (hs > cap) { this.vel.x *= cap / hs; this.vel.z *= cap / hs; }
+      this.flingSpeed = Math.max(0, this.flingSpeed - dt * 6);
+    }
+    if (amount > 0.05) this.turnTo(Math.atan2(move.x, move.z), dt, 6);
     const nx = p.x + this.vel.x * dt, nz = p.z + this.vel.z * dt;
-    if (t.heightAt(nx, nz) > p.y + 0.3) {   // в полёте врезались в стену
-      this.vel.x *= -0.15; this.vel.z *= -0.15;
-    } else { p.x = nx; p.z = nz; }
+    if (t.heightAt(nx, nz) > p.y + 0.3) { this.vel.x *= -0.1; this.vel.z *= -0.1; }
+    else { p.x = nx; p.z = nz; }
     p.y += this.vel.y * dt;
-    this.world.pushOut(p, 0.35);
+    this.world.pushOut(p, PLAYER_R);
+    this.course.pushOut(p, this.vel);
     this.peakY = Math.max(this.peakY, p.y);
-    if (input.grab) { this.tryGrab(); if (this.state !== 'air') return; }
+    if (input.hook) this.fireHook();
+    if (this.state !== 'air') return;
 
-    const h = Math.max(t.heightAt(p.x, p.z), -0.9);
-    if (p.y <= h) {
-      p.y = h;
-      const fall = this.peakY - p.y;
-      this.vel.y = 0;
-      this.vel.x *= 0.3; this.vel.z *= 0.3;
-      this.state = h > -0.9 && t.normalAt(p.x, p.z, _n).y < WALKABLE_NY - 0.06 ? 'slide' : 'ground';
-      if (h > -0.9) this.landed(fall, 1);
+    if (this.vel.y <= 0) {
+      // приземление: на доску (пересекли её верх за этот шаг) или на землю
+      const b = this.course.support(p.x, p.z, this.prevY, 0.05);
+      const th = Math.max(t.heightAt(p.x, p.z), -0.9);
+      let landY = null, box = null;
+      if (b && b.top >= p.y) { landY = b.top; box = b.box; }
+      if (th >= p.y && (landY === null || th > landY)) { landY = th; box = null; }
+      if (landY !== null) {
+        p.y = landY;
+        const fall = this.peakY - p.y;
+        this.vel.y = 0; this.vel.x *= 0.4; this.vel.z *= 0.4;
+        this.assist = null; this.flingSpeed = 0;
+        this.onBox = box;
+        this.squash = Math.min(1, Math.max(0, fall) / 6);
+        const steep = !box && th > -0.9 && t.normalAt(p.x, p.z, _n).y < WALKABLE_NY - 0.06;
+        this.state = steep ? 'slide' : 'ground';
+        if (th > -0.9 || box) this.landed(fall);
+        if (box && box.kind === 'pad') this.bounce(box);
+      }
     }
   }
 
   updateSlide(dt, input, move) {
     const t = this.t, p = this.pos;
     const n = t.normalAt(p.x, p.z, _n);
-    if (n.y >= WALKABLE_NY) {
-      this.state = 'ground';
-      this.landed(this.peakY - p.y, 0.6);
-      return;
-    }
-    if (this.peakY < p.y) this.peakY = p.y;
-    const d = _u.set(n.x, 0, n.z).normalize();       // вниз по склону
+    if (n.y >= WALKABLE_NY) { this.state = 'ground'; this.landed(this.peakY - p.y, 0.6); return; }
+    const d = _u.set(n.x, 0, n.z).normalize();
     this.vel.x += (d.x * 16 + move.x * 2) * dt;
     this.vel.z += (d.z * 16 + move.z * 2) * dt;
     p.x += this.vel.x * dt; p.z += this.vel.z * dt;
-    this.world.pushOut(p, 0.35);
+    this.world.pushOut(p, PLAYER_R);
     const h = t.heightAt(p.x, p.z);
     if (h < p.y - 0.8) { this.state = 'air'; this.vel.y = -2; }
     else p.y = Math.max(h, -0.9);
     if (p.y <= -0.9) { this.state = 'ground'; return; }
-    if (input.grab) this.tryGrab();
+    if (input.hook) this.fireHook();
   }
 
-  updateClimb(dt, input) {
-    const t = this.t, p = this.pos;
-    const n = t.normalAt(p.x, p.z, _n);
-    this.normal.copy(n);
-    if (n.y > WALKABLE_NY + 0.04) {
-      // выбрались наверх (или спустились на полку)
-      if (input.my > 0.2) { const up = _u.set(-n.x, 0, -n.z).normalize(); p.x += up.x * 0.3; p.z += up.z * 0.3; }
-      p.y = t.heightAt(p.x, p.z);
-      this.state = 'ground';
+  // ——— крюк ———
+  pickTarget(camDir) {
+    const chest = _c.copy(this.pos).setY(this.pos.y + 1.3);
+    let best = null, bestScore = 1e9, near = null, nearD = 1e9;
+    for (const a of this.course.anchors) {
+      const d = _d.subVectors(a.pos, chest);
+      const dist = d.length();
+      if (dist > HOOK_RANGE || dist < 1.2) continue;
+      if (this.rope && this.rope.anchor === a) continue;
+      if (!this.clearLine(chest, a.pos)) continue;
+      const cosA = d.dot(camDir) / dist;
+      if (dist < 16 && dist < nearD) { nearD = dist; near = a; }
+      if (cosA < 0.25) continue;
+      const score = (1 - cosA) * 30 + dist * 0.15;
+      if (score < bestScore) { bestScore = score; best = a; }
+    }
+    this.target = best || near;
+    return this.target;
+  }
+
+  clearLine(a, b) {
+    const steps = 18, len = a.distanceTo(b);
+    for (let i = 1; i < steps; i++) {
+      const u = i / steps;
+      if ((1 - u) * len < 1.8) break;          // у самого кольца верёвка может задеть край — не страшно
+      const x = a.x + (b.x - a.x) * u, y = a.y + (b.y - a.y) * u, z = a.z + (b.z - a.z) * u;
+      if (this.t.heightAt(x, z) > y - 0.1) return false;
+    }
+    return true;
+  }
+
+  fireHook() {
+    if (this.rope) { this.release(false); return; }
+    if (this.hook || this.state === 'mantle') return;
+    if (!this.target) { this.ev.message('Рядом нет кольца — ищи светящееся кольцо на скале'); return; }
+    if (this.stamina < COST.hook) { this.ev.message('Нет сил на крюк — отдохни на земле'); return; }
+    this.spend(COST.hook);
+    const dist = this.hands.distanceTo(this.target.pos);
+    this.hook = { anchor: this.target, t: 0, dur: dist / HOOK_FLY };
+  }
+
+  attach() {
+    const a = this.hook.anchor;
+    this.hook = null;
+    this.rope = { anchor: a, len: this.hands.distanceTo(a.pos) };
+    this.state = 'rope';
+    this.onBox = null; this.assist = null;
+  }
+
+  release(boost) {
+    if (!this.rope) return;
+    this.rope = null;
+    this.state = 'air';
+    if (boost) {
+      this.vel.y = Math.max(this.vel.y, 0) + 5;
+      this.spend(COST.jump);
+    }
+    this.flingSpeed = Math.hypot(this.vel.x, this.vel.z);   // сохранить разгон от раскачки
+  }
+
+  updateRope(dt, input, move, amount) {
+    const p = this.pos, A = this.rope.anchor.pos;
+    this.vel.y -= G * dt;
+    this.vel.addScaledVector(move, amount * 8 * dt);
+    this.vel.multiplyScalar(1 - 0.2 * dt);
+    p.addScaledVector(this.vel, dt);
+    this.rope.len = Math.max(ROPE_MIN, this.rope.len - REEL * dt);
+    const q = _q.copy(p).setY(p.y + HANDS);
+    const d = _d.subVectors(q, A);
+    const dist = d.length();
+    if (dist > this.rope.len) {
+      d.multiplyScalar(1 / dist);
+      q.copy(A).addScaledVector(d, this.rope.len);
+      p.set(q.x, q.y - HANDS, q.z);
+      const vr = this.vel.dot(d);
+      if (vr > 0) this.vel.addScaledVector(d, -vr);
+    }
+    // земля и стена под ногами: тащит вверх по скале
+    const th = this.t.heightAt(p.x, p.z);
+    if (p.y < th) { p.y = th; if (this.vel.y < 0) this.vel.y = 0; }
+    this.world.pushOut(p, PLAYER_R);
+    this.course.pushOut(p, this.vel);
+    this.spend(COST.hang * dt);
+    this.facing = Math.atan2(A.x - p.x, A.z - p.z);
+    if (this.rope.anchor.landing && _q.copy(p).setY(p.y + HANDS).distanceTo(A) < 1.25) {
+      // долезли до кольца — перелезаем через край на уступ
+      const to = this.rope.anchor.landing.clone();
+      this.rope = null;
+      this.mantle = { from: p.clone(), to, t: 0, dur: 0.45 };
+      this.state = 'mantle';
       this.vel.set(0, 0, 0);
       return;
     }
-    // вверх по скале и вбок вдоль неё
-    const tu = _u.copy(UP).addScaledVector(n, -n.y).normalize();
-    const hz = Math.hypot(n.x, n.z) || 1;
-    const side = _s.set(n.z / hz, 0, -n.x / hz);
-    let my = input.my, mx = input.mx;
-    if (this.lunge > 0) { this.lunge -= dt; my = LUNGE_SPEED / CLIMB_SPEED; mx = 0; }
-    const moving = Math.abs(my) + Math.abs(mx) > 0.1;
-    this.spend((moving ? COST.climbPerSec : COST.hangPerSec) * dt);
-    if (moving) this.climbPhase += dt * 7;
-    p.addScaledVector(tu, my * CLIMB_SPEED * dt).addScaledVector(side, mx * CLIMB_SPEED * dt);
-    p.y = t.heightAt(p.x, p.z);
-    this.facing = Math.atan2(-n.x, -n.z);
+    if (input.hook) this.release(false);
+    else if (input.jump) this.release(true);
+    else if (this.stamina <= 0) { this.release(false); this.ev.message('Силы кончились — руки разжались!'); }
+  }
 
-    if (input.jump && this.lunge <= 0) {
-      if (this.stamina >= COST.lunge) { this.spend(COST.lunge); this.lunge = 0.28; }
-      else this.ev.message('Нет сил на рывок');
-    }
-    if (this.stamina <= 0) {
-      this.letGo(n);
-      this.ev.message('Силы кончились — сорвались!');
-    } else if (input.grab) {
-      this.letGo(n);
+  updateMantle(dt) {
+    const m = this.mantle;
+    m.t += dt;
+    const u = Math.min(1, m.t / m.dur), e = u * u * (3 - 2 * u);
+    this.pos.lerpVectors(m.from, m.to, e);
+    this.pos.y += Math.sin(u * Math.PI) * 0.8;
+    this.facing = Math.atan2(m.to.x - m.from.x, m.to.z - m.from.z);
+    if (u >= 1) {
+      this.pos.copy(m.to);
+      this.mantle = null;
+      this.state = 'ground';
+      this.peakY = this.pos.y;
+      this.squash = 0.4;
     }
   }
 
-  letGo(n) {
-    this.state = 'air';
-    this.peakY = this.pos.y;
-    this.vel.set(n.x * 2.2, 0.5, n.z * 2.2);
-    this.pos.x += n.x * 0.3; this.pos.z += n.z * 0.3;
-    this.lunge = 0;
-  }
-
-  // Ухватиться за скалу перед собой (или под собой, если съезжаем).
-  tryGrab() {
-    const t = this.t, p = this.pos;
-    if (this.stamina < (this.state === 'ground' ? 4 : COST.grabInAir)) { this.ev.message('Нет сил ухватиться — отдохни'); return; }
-    const here = t.normalAt(p.x, p.z, _n);
-    let gx = null, gz = null;
-    if (here.y < WALKABLE_NY && Math.abs(t.heightAt(p.x, p.z) - p.y) < 1.2) {
-      gx = p.x; gz = p.z;
-    } else {
-      // ищем стену впереди на уровне груди
-      const f = this.state === 'ground' || this.state === 'climb' ? this.forward : _f.set(this.vel.x, 0, this.vel.z);
-      if (f.lengthSq() < 1e-4) f.set(Math.sin(this.facing), 0, Math.cos(this.facing));
-      f.normalize();
-      const target = p.y + 0.9;
-      for (let d = 0.2; d <= 1.6; d += 0.1) {
-        const x = p.x + f.x * d, z = p.z + f.z * d;
-        if (t.heightAt(x, z) >= target && t.normalAt(x, z, _n).y < WALKABLE_NY) {
-          // точка на скале чуть ниже — там, где будут ноги
-          let lo = Math.max(0, d - 0.6), hi = d;
-          for (let i = 0; i < 10; i++) {
-            const mid = (lo + hi) / 2;
-            if (t.heightAt(p.x + f.x * mid, p.z + f.z * mid) >= p.y + 0.3) hi = mid; else lo = mid;
-          }
-          gx = p.x + f.x * hi; gz = p.z + f.z * hi;
-          break;
-        }
-      }
+  // движущаяся платформа везёт того, кто на ней стоит
+  carry() {
+    if (this.state === 'ground' && this.onBox && this.onBox.dp) {
+      this.pos.add(this.onBox.dp);
+      if (this.onBox.dp.y < 0) this.pos.y = this.onBox.c.y + this.onBox.hy;
     }
-    if (gx === null) {
-      if (this.state === 'ground') this.ev.message('Тут не за что ухватиться — подойди к скале');
-      return;
-    }
-    const n = t.normalAt(gx, gz, _n);
-    if (n.y >= WALKABLE_NY) return;
-    if (this.state === 'air' || this.state === 'slide') this.spend(COST.grabInAir);
-    // поймались в падении — высота падения обнуляется
-    p.x = gx; p.z = gz; p.y = t.heightAt(gx, gz);
-    this.vel.set(0, 0, 0);
-    this.state = 'climb';
-    this.lunge = 0;
-    this.facing = Math.atan2(-n.x, -n.z);
   }
 
-  spend(v) {
-    this.stamina = Math.max(0, this.stamina - v);
-    this.restTimer = 0;
-  }
+  // ——— прочее ———
+  spend(v) { this.stamina = Math.max(0, this.stamina - v); this.restTimer = 0; }
 
-  // Впереди (куда толкаем джойстик) скала выше головы?
-  wallAhead(move) {
-    const t = this.t, p = this.pos;
-    for (const d of [0.5, 1.0]) {
-      const x = p.x + move.x * d, z = p.z + move.z * d;
-      if (t.heightAt(x, z) > p.y + 0.8 && t.normalAt(x, z, _n).y < WALKABLE_NY) return true;
-    }
-    return false;
-  }
-
-  landed(fall, k) {
+  landed(fall, k = 1) {
     if (fall > SAFE_FALL) {
-      const dmg = Math.round((fall - SAFE_FALL) * 7 * k);
+      const dmg = Math.round((fall - SAFE_FALL) * 6 * k);
       if (dmg > 0) this.hurt(dmg);
     }
   }
@@ -304,29 +363,33 @@ export class Player {
   hurt(dmg) {
     this.health = Math.max(0, this.health - dmg);
     this.ev.hurt(dmg);
-    if (this.health <= 0 && !this.dead) {
-      this.dead = true;
-      this.ev.died();
-    }
+    if (this.health <= 0 && !this.dead) { this.dead = true; this.rope = null; this.hook = null; this.ev.died(); }
   }
 
   checkPickups() {
     const p = this.pos;
+    for (const s of this.course.stars) {
+      if (s.taken) continue;
+      if (Math.abs(s.pos.x - p.x) < 1.1 && Math.abs(s.pos.z - p.z) < 1.1 && s.pos.y - p.y > -0.6 && s.pos.y - p.y < 2.4) {
+        s.taken = true; s.mesh.visible = false; this.ev.star(s);
+      }
+    }
     for (const b of this.world.bushes) {
       if (b.taken) continue;
       if (Math.abs(b.x - p.x) < 1.4 && Math.abs(b.z - p.z) < 1.4 && Math.abs(b.y - p.y) < 2) {
-        b.taken = true;
-        b.berries.visible = false;
-        this.stamina = 100;
-        this.health = Math.min(100, this.health + 20);
+        b.taken = true; b.berries.visible = false;
+        this.stamina = 100; this.health = Math.min(100, this.health + 20);
         this.ev.berries();
       }
     }
-    for (const c of this.world.camps) {
-      if (Math.hypot(c.x - p.x, c.z - p.z) < 4.5 && Math.abs(c.y - p.y) < 3) {
+    for (const c of this.course.camps) {
+      if (Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < 4.5 && Math.abs(c.pos.y - p.y) < 3) {
         if (!c.reached) { c.reached = true; this.ev.camp(c); }
         this.health = 100;
       }
+    }
+    for (const h of this.course.hints) {
+      if (!h.shown && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < h.r && Math.abs(h.pos.y - p.y) < 3) { h.shown = true; this.ev.hint(h.text); }
     }
     const s = this.t.summit;
     if (Math.hypot(s.x - p.x, s.z - p.z) < 9 && p.y > s.y - 4 && this.state === 'ground') this.ev.summit();
@@ -338,84 +401,61 @@ export class Player {
     this.facing += d * Math.min(1, speed * dt);
   }
 
-  animate(dt, amount) {
-    const M = this.model, p = this.pos;
-    M.root.position.copy(p);
-    if (this.state === 'climb') M.root.position.addScaledVector(this.normal, 0.32);
-    M.root.rotation.y = this.facing;
+  // ——— картинка ———
+  animate(dt) {
+    const H = this.hero, p = this.pos;
+    H.root.position.copy(p);
+    H.root.rotation.y = this.facing;
     const hs = Math.hypot(this.vel.x, this.vel.z);
+    this.squash = Math.max(0, this.squash - dt * 4);
+    const sq = this.squash * 0.18;
+    H.body.scale.set(1 + sq * 0.5, 1 - sq, 1 + sq * 0.5);
+    const f = Math.min(1, dt * 14);
+    const pose = (o, x, z) => { o.rotation.x += (x - o.rotation.x) * f; o.rotation.z += (z - o.rotation.z) * f; };
     if (this.state === 'ground') {
-      this.walkPhase += dt * hs * 2.4;
-      const s = Math.sin(this.walkPhase) * Math.min(1, hs / 3) * 0.8;
-      M.legL.rotation.x = s; M.legR.rotation.x = -s;
-      M.armL.rotation.x = -s * 0.8; M.armR.rotation.x = s * 0.8;
-      M.armL.rotation.z = 0; M.armR.rotation.z = 0;
-      M.body.rotation.x = Math.min(0.25, hs * 0.03);
-    } else if (this.state === 'climb') {
-      const s = Math.sin(this.climbPhase);
-      M.armL.rotation.x = -2.6 + s * 0.4; M.armR.rotation.x = -2.6 - s * 0.4;
-      M.armL.rotation.z = 0; M.armR.rotation.z = 0;
-      M.legL.rotation.x = -0.5 - s * 0.4; M.legR.rotation.x = -0.5 + s * 0.4;
-      M.body.rotation.x = 0.15;
+      this.walkPhase += dt * hs * 2.3;
+      const amp = Math.min(1, hs / 3) * (hs > 5.5 ? 1.0 : 0.75);
+      const s = Math.sin(this.walkPhase) * amp;
+      pose(H.legL, s, 0); pose(H.legR, -s, 0);
+      pose(H.armL, -s * 0.9, -0.35); pose(H.armR, s * 0.9, 0.35);
+      H.body.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.06 * amp + Math.sin(this.time * 2) * 0.01;
+      H.body.rotation.x = Math.min(0.25, hs * 0.03);
+    } else if (this.state === 'rope') {
+      const sw = Math.sin(this.time * 3) * 0.2;
+      pose(H.armR, -2.95, 0.15); pose(H.armL, -2.6, -0.25);
+      pose(H.legL, 0.25 + sw, 0.1); pose(H.legR, -0.15 - sw, -0.1);
+      H.body.rotation.x = 0; H.body.position.y = 0;
+    } else if (this.state === 'mantle') {
+      pose(H.armL, -2.4, -0.2); pose(H.armR, -2.4, 0.2);
+      pose(H.legL, -0.9, 0); pose(H.legR, 0.2, 0);
     } else {
-      M.armL.rotation.x = -1.2; M.armR.rotation.x = -1.2;
-      M.armL.rotation.z = 0.5; M.armR.rotation.z = -0.5;
-      M.legL.rotation.x = 0.3; M.legR.rotation.x = -0.2;
-      M.body.rotation.x = 0;
+      const up = this.vel.y > 0;
+      pose(H.armL, up ? -2.6 : -1.3, -0.6); pose(H.armR, up ? -2.6 : -1.3, 0.6);
+      pose(H.legL, up ? -0.7 : 0.3, 0.1); pose(H.legR, up ? 0.2 : -0.3, -0.1);
+      H.body.rotation.x = 0; H.body.position.y = 0;
     }
-    // тень под ногами
-    const g = this.t.heightAt(p.x, p.z);
-    this.shadow.position.set(p.x, Math.max(g, 0) + 0.05, p.z);
-    const hgt = Math.max(0, p.y - g);
-    this.shadow.scale.setScalar(Math.max(0.4, 1 - hgt * 0.06));
-    this.shadow.visible = this.state !== 'climb';
+    H.head.rotation.z = Math.sin(this.time * 1.3) * 0.04;
+    // верёвка: от рук до крюка (летит или зацеплен)
+    const hand = _c.copy(p).setY(p.y + (this.state === 'rope' ? 1.95 : HANDS));
+    let end = null;
+    if (this.rope) end = this.rope.anchor.pos;
+    else if (this.hook) end = _d.copy(hand).lerp(this.hook.anchor.pos, Math.min(1, this.hook.t / this.hook.dur));
+    if (end) {
+      this.ropeMesh.visible = true;
+      this.ropeMesh.position.copy(hand);
+      this.ropeMesh.lookAt(end);
+      this.ropeMesh.scale.set(1, 1, Math.max(0.01, hand.distanceTo(end)));
+      this.hookHead.visible = true;
+      this.hookHead.position.copy(end);
+    } else { this.ropeMesh.visible = false; this.hookHead.visible = false; }
+    // кружок тени под ногами
+    const sup = this.supportAt(_q.copy(p).setY(p.y + 0.05), 0.1);
+    const hgt = Math.max(0, p.y - sup.y);
+    this.shadow.position.set(p.x, Math.max(sup.y, 0) + 0.04, p.z);
+    this.shadow.scale.setScalar(Math.max(0.35, 1 - hgt * 0.05));
+    this.shadow.material.opacity = Math.max(0.08, 0.26 - hgt * 0.01);
   }
 }
 
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _m = new THREE.Vector3();
-const _n = new THREE.Vector3(), _u = new THREE.Vector3(), _s = new THREE.Vector3(), _f = new THREE.Vector3();
-
-function makeModel() {
-  const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
-  const jacket = new THREE.MeshLambertMaterial({ color: '#ff7a3d', flatShading: true });
-  const pants = new THREE.MeshLambertMaterial({ color: '#34465c', flatShading: true });
-  const skin = new THREE.MeshLambertMaterial({ color: '#f0c49c', flatShading: true });
-  const hatM = new THREE.MeshLambertMaterial({ color: '#2f6fae', flatShading: true });
-  const packM = new THREE.MeshLambertMaterial({ color: '#6a5038', flatShading: true });
-
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.45, 3, 8), jacket);
-  torso.position.y = 1.05;
-  const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.21, 1), skin);
-  head.position.y = 1.6;
-  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.3, 8), hatM);
-  hat.position.y = 1.82;
-  const pom = new THREE.Mesh(new THREE.IcosahedronGeometry(0.06, 0), hatM);
-  pom.position.y = 1.98;
-  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.55, 0.24), packM);
-  pack.position.set(0, 1.1, -0.3);
-  const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.46, 8), new THREE.MeshLambertMaterial({ color: '#3d8a5a' }));
-  roll.rotation.z = Math.PI / 2;
-  roll.position.set(0, 1.42, -0.32);
-  body.add(torso, head, hat, pom, pack, roll);
-
-  const limb = (w, h, mat) => {
-    const g = new THREE.BoxGeometry(w, h, w);
-    g.translate(0, -h / 2, 0);
-    return new THREE.Mesh(g, mat);
-  };
-  const legL = limb(0.15, 0.62, pants), legR = limb(0.15, 0.62, pants);
-  legL.position.set(-0.13, 0.64, 0); legR.position.set(0.13, 0.64, 0);
-  const armL = limb(0.12, 0.55, jacket), armR = limb(0.12, 0.55, jacket);
-  armL.position.set(-0.36, 1.38, 0); armR.position.set(0.36, 1.38, 0);
-  root.add(legL, legR, armL, armR);
-  return { root, body, legL, legR, armL, armR };
-}
-
-function makeShadow() {
-  const geo = new THREE.CircleGeometry(0.45, 16);
-  geo.rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false });
-  return new THREE.Mesh(geo, mat);
-}
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _m = new THREE.Vector3(), _n = new THREE.Vector3();
+const _u = new THREE.Vector3(), _h = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Vector3();
