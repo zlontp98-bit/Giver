@@ -25,6 +25,10 @@ android/        Android-оболочка: WebView на весь экран, ал
 - Сборка: `npm ci && npm run build` (three.js 0.170 и esbuild из npm). Собранное в git не кладётся
   (`.gitignore`), Actions собирает само.
 - `dist/giver.html` — вся игра одним файлом: открыть в браузере / выложить артефактом на claude.ai.
+  Артефакт «Giver — восхождение» (https://claude.ai/artifact/KpySPZDkWR8mYzkeUpVUZw,
+  slug 98773beb-858d-4f38-ba6f-c0d3bdcda632) — в него играют прямо в приложении Claude; после
+  изменений обновлять его (`publish_files` с `slug`/`base_version`; файл для публикации должен лежать
+  в рабочей папке сессии — скопировать туда на время и потом удалить).
 - Страница в APK грузится по адресу `file:///android_asset/web/index.html` — не менять (рекорд в
   localStorage привязан к адресу). Скрипт — обычный (не модуль), иначе file:// не пустит.
 - Мост Android → JS: `window.AndroidBridge.exit()`; JS ← Android: `window.__onBack()` (кнопка «Назад»:
