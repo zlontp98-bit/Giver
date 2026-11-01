@@ -80,14 +80,27 @@ android/        Android-оболочка: WebView на весь экран, ал
   горизонте, настройка качества «низкая/средняя/высокая», новый APK. Модель телефона пользователь
   пока не назвал.
 
+## Пример «Вечерний лагерь» (новые возможности, в игру ещё не перенесён)
+
+`experiments/camp-demo/` — лагерь у костра на уступе: модели Kenney Nature Kit (перекрашены, `PALETTE`),
+текстуры Poly Haven (скалы — трипланарная проекция цвета и нормалей), костёр и светлячки частицами
+(`fire.js`), вода-шейдер с бликами, эффекты postprocessing (bloom, ACES, виньетка, SMAA) + N8AO;
+на слабом телефоне сам снижает качество. GLB разбираются из base64 без fetch (в артефакте fetch data: может
+быть запрещён). Сборка: `node experiments/camp-demo/build.mjs` (из корня; `absWorkingDir` обязателен —
+иначе esbuild соберёт игру из корневого src/). Артефакт: https://claude.ai/artifact/W9Nq2FqUtMEqtoVuEn9Vs4
+(обновлять публикацией файла `experiments/camp-demo/artifact/camp.html` с `url`). Источники — CREDITS.md.
+
 ## Что доступно для графики (проверено)
 
 - npm открыт: `postprocessing` (свечение, цвет), `n8ao` (мягкие тени в щелях), `three.quarks` (частицы),
   `@dimforge/rapier3d-compat` (физика: верёвки, «кукла» при падении), `three-custom-shader-material`,
   `@pmndrs/assets` (CC0: HDRI неба, карты нормалей, matcap). PyPI открыт: `bpy` 5.2.3 (Blender как
   модуль Python 3.13) — не ставили.
-- Закрыты сетью: kenney.nl, opengameart.org, itch.io, чужие репозитории GitHub (403). Пользователю
-  объяснено, как открыть домены в настройках среды (Network access → Allowed domains).
+- Сеть: пользователь открыл доступ (Custom/Full) — kenney.nl, quaternius.com, polyhaven.com
+  (api.polyhaven.com, dl.polyhaven.org), ambientcg.com, huggingface.co работают. Kenney отдаёт zip через
+  `https://kenney.nl/download-link/<id>` (id — `data-download-id` на странице набора, нужен User-Agent).
+- Hugging Face подключён (аккаунт Abobus2000): поиск работает, а рисование (dynamic_space invoke)
+  выключено (`gradio=none`) — пользователю объяснено, как включить Spaces на huggingface.co/settings/mcp.
 - Своих рисунков-нейросетей у Claude нет. Предложено пользователю: подключить коннектор Hugging Face
   (claude.ai/customize/connectors, потом новая сессия) — через него Gradio-приложения (картинки, 3D);
   или самому делать модели в Meshy/Tripo (.glb) и картинки в любых рисовалках и присылать.
