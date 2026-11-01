@@ -26,8 +26,8 @@ const { scene, camera } = gfx;
 const terrain = new Terrain(SEED);
 const start = findStart(terrain);
 const course = new Course(terrain, start, SEED);          // заодно выравнивает площадки под лагеря
-gfx.terrainMat = terrainMaterial();
-scene.add(terrain.buildMesh(gfx.terrainMat));
+gfx.terrainMesh = terrain.buildMesh(terrainMaterial(0));
+scene.add(gfx.terrainMesh);
 const sea = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), waterMaterial());
 sea.rotation.x = -Math.PI / 2;
 sea.position.y = 0.05;
@@ -71,7 +71,7 @@ loadModels().then((models) => {
   for (const c of course.camps) { fires.push(new Campfire(scene, c.fire)); flies.push(new Fireflies(scene, c.pos, 14, 7)); }
   game.starsTotal = course.stars.length;
   hud.setupTrack(terrain.summit.y, course.camps);
-  setQuality(save.quality || 'medium', false);
+  setQuality(save.quality2 || 'low', false);
   camera.position.set(start.x, start.y + 4, start.z + 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
@@ -124,7 +124,7 @@ function setQuality(key, remember) {
   if (!QUALITY[key]) key = 'medium';
   gfx.setQuality(key);
   document.querySelectorAll('[data-quality] button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.q === key)));
-  if (remember) { save.quality = key; writeSave(); slowTime = 0; }
+  if (remember) { save.quality2 = key; writeSave(); slowTime = 0; }
 }
 
 function win() {
@@ -156,6 +156,9 @@ function stepOnce(inp) {
 
 function frame(now) {
   requestAnimationFrame(frame);
+  // экономия: не рисуем чаще, чем нужно (экраны бывают 90–120 Гц — телефон бы грелся зря)
+  const fps = game.running ? gfx.fps : 15;
+  if (now - last < 1000 / fps - 2) return;
   const raw = (now - last) / 1000;
   last = now;
   const dt = Math.min(0.1, raw);
@@ -214,7 +217,8 @@ function updateCamera(dt) {
 function adaptQuality(raw) {
   if (window.__noAdapt) return;
   slowCheck += raw;
-  slowTime = raw > 0.045 ? slowTime + raw : Math.max(0, slowTime - raw * 0.5);
+  const limit = 1.6 / gfx.fps;                    // кадр заметно дольше положенного — тормозит
+  slowTime = raw > limit ? slowTime + raw : Math.max(0, slowTime - raw * 0.5);
   if (slowCheck < 4 || slowTime < 3) return;
   const i = QUALITY_ORDER.indexOf(gfx.quality);
   if (i <= 0) return;

@@ -25,6 +25,8 @@ export class Player {
     this.target = null; // на какое кольцо смотрим
     this.walkPhase = 0; this.squash = 0; this.time = 0;
     this.hero = makeHero();
+    // герой не отбрасывает «настоящую» тень (тени обновляются не каждый кадр) — под ним свой кружок
+    this.hero.root.traverse((o) => { if (o.isMesh) o.castShadow = false; });
     scene.add(this.hero.root);
     // верёвка и крюк
     const rg = new THREE.CylinderGeometry(0.03, 0.03, 1, 6, 1, true);
