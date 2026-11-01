@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- гора -->
+    <path android:fillColor="#857A6D" android:pathData="M22,82 L50,36 L58,46 L66,40 L88,82 Z" />
+    <!-- тень на склоне -->
+    <path android:fillColor="#6E655A" android:pathData="M50,36 L58,46 L54,82 L44,82 Z" />
+    <!-- снег -->
+    <path android:fillColor="#F1F4F8" android:pathData="M50,36 L57,47.5 L53,45 L49,49 L45,45 Z" />
+    <!-- зелень у подножия -->
+    <path android:fillColor="#4A8238" android:pathData="M22,82 L30,70 L38,74 L46,68 L58,74 L70,68 L80,72 L88,82 Z" />
+    <!-- флаг на вершине -->
+    <path android:fillColor="#FFFFFF" android:pathData="M49.4,24 h1.2 v12 h-1.2 Z" />
+    <path android:fillColor="#FF7A3D" android:pathData="M50.6,24 L60,27.5 L50.6,31 Z" />
+</vector>

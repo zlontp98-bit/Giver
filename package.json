@@ -1,0 +1,16 @@
+{
+  "name": "giver",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Giver — игра-восхождение на гору для телефона (three.js внутри Android WebView)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

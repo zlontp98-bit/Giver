@@ -1,0 +1,8 @@
+node_modules/
+dist/
+# собирается из src/ и web/ командой npm run build
+android/app/src/main/assets/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

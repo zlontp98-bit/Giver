@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Giver — восхождение</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3f0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+  #layer { position: fixed; inset: 0; touch-action: none; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #bars { position: absolute; left: calc(14px + env(safe-area-inset-left)); top: calc(12px + env(safe-area-inset-top)); width: min(38vw, 240px); }
+  .bar { height: 14px; border-radius: 8px; background: rgba(0,0,0,.35); overflow: hidden; margin-bottom: 7px; border: 1.5px solid rgba(255,255,255,.55); }
+  .bar > i { display: block; height: 100%; width: 100%; transition: width .12s linear; }
+  #hp > i { background: linear-gradient(90deg, #e2394b, #ff6b6b); }
+  #st > i { background: linear-gradient(90deg, #f0b429, #ffe066); }
+  #st.low > i { background: linear-gradient(90deg, #ff6a00, #ff9a3d); animation: blink .5s infinite alternate; }
+  @keyframes blink { to { opacity: .45; } }
+  .lbl { font-size: 11px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.6); margin: 0 0 2px 4px; opacity: .9; }
+
+  #alt { position: absolute; right: calc(14px + env(safe-area-inset-right)); top: calc(10px + env(safe-area-inset-top)); text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+  #alt b { font-size: 26px; display: block; line-height: 1; }
+  #alt span { font-size: 12px; opacity: .9; }
+  #pause { pointer-events: auto; position: absolute; left: 50%; transform: translateX(-50%); top: calc(8px + env(safe-area-inset-top)); width: 44px; height: 36px; border-radius: 10px; border: 0; background: rgba(0,0,0,.3); color: #fff; font-size: 18px; }
+
+  #msg { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); background: rgba(10,20,30,.62); padding: 9px 16px; border-radius: 12px; font-size: 16px; font-weight: 600; opacity: 0; transition: opacity .25s; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
+  #msg.show { opacity: 1; }
+  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 90px 30px rgba(220,30,40,.65); opacity: 0; transition: opacity .35s; }
+
+  #joy { position: fixed; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.4); display: none; pointer-events: none; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: rgba(255,255,255,.55); }
+  #joyHint { position: absolute; left: calc(40px + env(safe-area-inset-left)); bottom: calc(40px + env(safe-area-inset-bottom)); width: 110px; height: 110px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.4); display: flex; align-items: center; justify-content: center; font-size: 12px; text-align: center; opacity: .8; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+
+  #btns { position: absolute; right: calc(18px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); width: 210px; height: 190px; }
+  .btn { pointer-events: auto; position: absolute; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.75); background: rgba(20,30,40,.35); color: #fff; display: flex; align-items: center; justify-content: center; flex-direction: column; font-size: 30px; touch-action: none; }
+  .btn small { font-size: 10px; font-weight: 700; margin-top: -2px; }
+  .btn.down { background: rgba(255,255,255,.45); }
+  #bGrab { width: 92px; height: 92px; right: 0; bottom: 0; }
+  #bJump { width: 74px; height: 74px; right: 104px; bottom: 6px; }
+  #bRun { width: 58px; height: 58px; right: 20px; bottom: 112px; font-size: 22px; }
+  #bRun.on { background: rgba(255,200,60,.55); }
+  #bGrab.hint { animation: pulse .7s infinite alternate; }
+  #bGrab.active { background: rgba(255,122,61,.65); }
+  @keyframes pulse { to { transform: scale(1.12); background: rgba(255,122,61,.55); } }
+
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8,20,32,.55); backdrop-filter: blur(3px); z-index: 10; padding: 16px; }
+  .screen.show { display: flex; }
+  .card { background: rgba(255,255,255,.95); color: #1d2b36; border-radius: 18px; padding: 20px 24px; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.35); max-height: 92vh; overflow: auto; }
+  .card h1 { margin: 0 0 2px; font-size: 34px; letter-spacing: 1px; color: #e8692f; }
+  .card h2 { margin: 0 0 8px; font-size: 22px; }
+  .card p { margin: 6px 0; font-size: 14px; line-height: 1.4; }
+  .card ul { text-align: left; font-size: 13px; padding-left: 20px; margin: 8px 0; line-height: 1.45; }
+  .card button { margin: 10px 4px 0; padding: 12px 22px; font-size: 17px; font-weight: 700; border: 0; border-radius: 12px; background: #e8692f; color: #fff; }
+  .card button.sec { background: #dfe6ec; color: #1d2b36; }
+  .sub { color: #5d7080; font-size: 13px; }
+  /* телефон боком: карточка пошире, правила в две колонки, кнопка всегда видна */
+  @media (max-height: 520px) {
+    .card { max-width: 760px; padding: 12px 18px; }
+    .card h1 { font-size: 26px; }
+    .card p { margin: 3px 0; font-size: 13px; }
+    .card ul { columns: 2; column-gap: 22px; font-size: 12px; margin: 6px 0; line-height: 1.35; }
+    .card li { break-inside: avoid; margin-bottom: 3px; }
+    .card button { margin-top: 6px; padding: 10px 20px; }
+  }
+</style>
+</head>
+<body>
+<div id="layer"></div>
+
+<div id="hud">
+  <div id="bars">
+    <div class="lbl">Здоровье</div><div class="bar" id="hp"><i></i></div>
+    <div class="lbl">Силы</div><div class="bar" id="st"><i></i></div>
+  </div>
+  <div id="alt"><b id="altV">0 м</b><span id="altT">до вершины 150 м</span><br><span id="time">0:00</span></div>
+  <button id="pause">❚❚</button>
+  <div id="msg"></div>
+  <div id="hurt"></div>
+  <div id="joyHint">палец сюда — идти</div>
+  <div id="btns">
+    <div class="btn" id="bRun">»<small>бег</small></div>
+    <div class="btn" id="bJump">⤒<small>прыжок</small></div>
+    <div class="btn" id="bGrab">✋<small>хват</small></div>
+  </div>
+</div>
+<div id="joy"><div id="knob"></div></div>
+
+<div class="screen show" id="sStart"><div class="card">
+  <h1>GIVER</h1>
+  <div class="sub">восхождение</div>
+  <p>Ты на берегу острова. Наверху горы — флаг. Доберись до вершины!</p>
+  <ul>
+    <li><b>Левая половина экрана</b> — водишь пальцем, герой идёт. Дотянешь далеко или нажмёшь <b>»</b> — бежит.</li>
+    <li><b>Правая половина</b> — поворот камеры.</li>
+    <li><b>✋ Хват</b> — у скалы: ухватиться и лезть (джойстик вверх). Ещё раз ✋ — отпустить. Можно поймать скалу в падении!</li>
+    <li><b>⤒ Прыжок</b> — на скале это рывок вверх.</li>
+    <li>Лезть, бегать и прыгать тратит <b>силы</b>. Кончатся на скале — сорвёшься. Отдыхай на уступах.</li>
+    <li>🫐 Ягоды возвращают силы, ⛺ лагеря — точки сохранения.</li>
+  </ul>
+  <button id="go">Начать</button>
+  <p class="sub" id="best"></p>
+</div></div>
+
+<div class="screen" id="sPause"><div class="card">
+  <h2>Пауза</h2>
+  <button id="resume">Продолжить</button>
+  <button class="sec" id="toCamp">В лагерь</button>
+  <button class="sec" id="restart">Заново</button>
+  <button class="sec" id="exit" style="display:none">Выйти</button>
+</div></div>
+
+<div class="screen" id="sDead"><div class="card">
+  <h2>Сорвался…</h2>
+  <p id="deadTxt">Слишком высоко упал.</p>
+  <button id="respawn">Продолжить с лагеря</button>
+</div></div>
+
+<div class="screen" id="sWin"><div class="card">
+  <h1>Вершина!</h1>
+  <p id="winTxt"></p>
+  <button id="again">Ещё раз</button>
+</div></div>
+
+<!--GAME-->
+</body>
+</html>
