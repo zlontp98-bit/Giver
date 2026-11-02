@@ -1,24 +1,36 @@
-// Точка входа: Бездна, маршрут вниз, убранство, герой, камера, игровой цикл, экраны и качество графики.
+// Точка входа: собирает игру из систем и крутит игровой цикл.
+//   мир        — world/ (Бездна, маршрут, убранство, пылинки)
+//   герой      — player/ (движение, лазание, крюк, вид)
+//   камера     — game/camera.js
+//   картинка   — render/ (рендер и качество, свет и дымка по глубине, модели, костры)
+//   интерфейс  — ui/ (полоски, кнопки, управление, экраны, FPS и «Замер»)
+//   сохранение — core/save.js
 import * as THREE from 'three';
-import { createGfx, terrainMaterial, QUALITY, QUALITY_ORDER } from './gfx.js';
-import { Abyss, BOTTOM_Y, LAYERS, layerAt, layerMix } from './abyss.js';
-import { Descent } from './descent.js';
-import { World } from './world.js';
-import { Player } from './player.js';
-import { Input } from './input.js';
-import { Hud, fmtTime } from './hud.js';
-import { loadModels } from './models.js';
-import { Campfire, Fireflies, flicker } from './fire.js';
-import { Motes } from './motes.js';
+import { createGfx, terrainMaterial, QUALITY, QUALITY_ORDER } from './render/gfx.js';
+import { Atmosphere } from './render/atmosphere.js';
+import { loadModels } from './render/models.js';
+import { Campfire, Fireflies } from './render/fire.js';
+import { Abyss, BOTTOM_Y, LAYERS, layerAt } from './world/abyss.js';
+import { Descent } from './world/descent.js';
+import { World } from './world/decor.js';
+import { Motes } from './world/motes.js';
+import { Player } from './player/player.js';
+import { FollowCamera } from './game/camera.js';
+import { Input } from './ui/input.js';
+import { Hud, fmtTime } from './ui/hud.js';
+import { Screens } from './ui/screens.js';
+import { FpsMeter, Benchmark, gpuName, pathFromRoute } from './ui/perf.js';
+import { Save } from './core/save.js';
 import { ASSETS, FONTS } from './assets.gen.js';
 
+/* global __GIVER_VERSION__ */
+const VERSION = typeof __GIVER_VERSION__ !== 'undefined' ? __GIVER_VERSION__ : 'dev';
 const SEED = 20261102;
-const SAVE_KEY = 'giver_v1';
 const STEP = 1 / 60;
 const $ = (id) => document.getElementById(id);
 
 installFonts();
-const save = loadSave();
+const save = new Save();
 const hud = new Hud();
 const gfx = createGfx();
 const { scene, camera } = gfx;
@@ -42,9 +54,7 @@ const events = {
   hurt: (dmg) => { hud.hurt(); if (dmg >= 10 && dmg < 1000) hud.message(`Ушибся: −${dmg}`); },
   died: (why) => {
     game.running = false;
-    $('deadTxt').textContent = `${why === 'abyss' ? 'Сорвался в бездну.' : 'Слишком сильно ударился.'} Вернёшься: ${game.campName}.`;
-    setTimeout(() => hud.screen('sDead', true), 700);
-    document.body.classList.remove('playing');
+    screens.showDead(`${why === 'abyss' ? 'Сорвался в бездну.' : 'Слишком сильно ударился.'} Вернёшься: ${game.campName}.`);
   },
   berries: () => hud.message('Ягоды! Силы полные'),
   caught: () => hud.message('Успел схватиться!'),
@@ -58,13 +68,23 @@ const events = {
 };
 
 let world = null, player = null, motes = null;
-// свет: общий от ближайшего костра (или от кристалла на дне) и мягкая подсветка стен изнутри шахты
-const localLight = new THREE.PointLight('#ff8a3a', 0, 16, 1.6);
-const fillLight = new THREE.PointLight('#ffffff', 1.3, 0, 0);
-scene.add(localLight, fillLight);
+const atmosphere = new Atmosphere(gfx);                 // свет и дымка по глубине
 const fires = [], flies = [];
-const cam = { yaw: Math.atan2(start.x, start.z), pitch: 0.3, dist: 7.5 };
+const cam = new FollowCamera(camera, abyss, start);
 const input = new Input($('layer'), hud);
+const meter = new FpsMeter($('fps'));
+const bench = new Benchmark();
+const screens = new Screens({
+  game, hud, input, save, version: VERSION,
+  onStart: () => hud.message('Цель — дно Бездны. Иди к краю ямы: у таблички мостки вниз', 5, true),
+  onRespawn: () => respawn(),
+  onToCamp: () => respawn(),
+  onQuality: (q) => setQuality(q, true),
+  onShowFps: (on) => setShowFps(on, true),
+  onBench: () => startBench(),
+  onBenchAbort: () => endBench(false),
+  benchRunning: () => bench.running,
+});
 
 loadModels().then((models) => {
   descent.build(scene, models);
@@ -78,49 +98,14 @@ loadModels().then((models) => {
   motes = new Motes(scene);
   game.shardsTotal = descent.shards.length;
   hud.setupTrack(BOTTOM_Y, descent.camps);
-  setQuality(save.quality2 || 'low', false);
+  setQuality(save.settings.quality || 'low', false);
+  setShowFps(!!save.settings.showFps, false);
   camera.position.set(start.x, start.y + 4, start.z + 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
-  window.__giver = { game, player, abyss, descent, world, cam, input, gfx, setQuality, step: (inp) => stepOnce(inp) };
+  window.__giver = { game, player, abyss, descent, world, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp) };
 });
-
-// ——— экраны и кнопки ———
-if (save.best2) $('best').textContent = `Рекорд: ${fmtTime(save.best2)} · осколков ${save.bestShards2 || 0}`;
-$('go').onclick = () => {
-  hud.screen('sStart', false);
-  game.running = true;
-  document.body.classList.add('playing');
-  hud.message('Цель — дно Бездны. Иди к краю ямы: у таблички мостки вниз', 5, true);
-};
-$('pause').onclick = () => setPaused(true);
-$('resume').onclick = () => setPaused(false);
-$('restart').onclick = () => location.reload();
-$('toCamp').onclick = () => { setPaused(false); respawn(); };
-$('respawn').onclick = () => { hud.screen('sDead', false); respawn(); game.running = true; document.body.classList.add('playing'); };
-$('again').onclick = () => location.reload();
-if (window.AndroidBridge && window.AndroidBridge.exit) {
-  $('exit').hidden = false;
-  $('exit').onclick = () => window.AndroidBridge.exit();
-}
-document.querySelectorAll('[data-quality] button').forEach((b) => { b.onclick = () => setQuality(b.dataset.q, true); });
-// кнопка «Назад» на Android: пауза / продолжить
-window.__onBack = () => {
-  if (!game.running && !game.paused) return false;
-  setPaused(!game.paused);
-  return true;
-};
-document.addEventListener('visibilitychange', () => { if (document.hidden && game.running) setPaused(true); });
 window.addEventListener('resize', () => gfx.resize());
-
-function setPaused(p) {
-  if (game.won || (!game.running && !game.paused)) return;
-  game.paused = p;
-  game.running = !p;
-  hud.screen('sPause', p);
-  document.body.classList.toggle('playing', !p);
-  input.reset();
-}
 
 function respawn() {
   player.spawn(game.checkpoint);
@@ -130,30 +115,51 @@ function respawn() {
 function setQuality(key, remember) {
   if (!QUALITY[key]) key = 'low';
   gfx.setQuality(key);
-  document.querySelectorAll('[data-quality] button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.q === key)));
-  if (remember) { save.quality2 = key; writeSave(); slowTime = 0; }
+  screens.showQuality(key);
+  if (remember) { save.settings.quality = key; save.write(); slowTime = 0; }
+}
+
+function setShowFps(on, remember) {
+  meter.setVisible(on);
+  screens.showFpsSetting(on);
+  if (remember) { save.settings.showFps = on; save.write(); }
 }
 
 function win() {
   if (game.won) return;
   game.won = true;
   game.running = false;
-  const isRecord = !save.best2 || game.elapsed < save.best2;
-  if (isRecord) save.best2 = game.elapsed;
-  save.bestShards2 = Math.max(save.bestShards2 || 0, game.shards);
-  writeSave();
-  $('wTime').textContent = fmtTime(game.elapsed);
-  $('wStars').textContent = `${game.shards}/${game.shardsTotal}`;
-  $('winTxt').textContent = isRecord ? 'Новый рекорд!' : `Рекорд: ${fmtTime(save.best2)}`;
-  document.body.classList.remove('playing');
-  setTimeout(() => hud.screen('sWin', true), 1200);
+  const rec = save.records.abyss;
+  const isRecord = !rec || game.elapsed < rec.time;
+  save.records.abyss = { time: isRecord ? game.elapsed : rec.time, shards: Math.max(rec ? rec.shards || 0 : 0, game.shards) };
+  save.write();
+  screens.showWin(game.elapsed, game.shards, game.shardsTotal, isRecord ? 'Новый рекорд!' : `Рекорд: ${fmtTime(save.records.abyss.time)}`);
+}
+
+// ——— «Замер» скорости: облёт по маршруту без ограничения кадров ———
+function startBench() {
+  bench.start(pathFromRoute(descent.route), player, cam);
+}
+function endBench(completed) {
+  const r = bench.finish(player, cam);
+  if (!completed || !r) { screens.showBench(null, save.data.bench); return; }
+  const q = QUALITY[gfx.quality], c = gfx.renderer.domElement, d = new Date(), dpr = window.devicePixelRatio || 1;
+  const two = (n) => String(n).padStart(2, '0');
+  Object.assign(r, {
+    quality: gfx.quality, qualityName: q.name, cap: q.fps, gpu: gpuName(gfx.renderer),
+    canvas: `${c.width}×${c.height}`,
+    screen: `${Math.round(window.innerWidth * dpr)}×${Math.round(window.innerHeight * dpr)}`,
+    cores: navigator.hardwareConcurrency || 0, version: VERSION,
+    date: `${two(d.getDate())}.${two(d.getMonth() + 1)} ${two(d.getHours())}:${two(d.getMinutes())}`,
+  });
+  save.addBench(r);
+  screens.showBench(r, save.data.bench);
 }
 
 // ——— цикл ———
 let acc = 0, last = performance.now(), clock = 0, courseTime = 0, slowTime = 0, slowCheck = 0;
-const target = new THREE.Vector3(), camPos = new THREE.Vector3(), camDir = new THREE.Vector3();
+const camDir = new THREE.Vector3();
 const NO_BUTTONS = { jump: false, hook: false, grab: false };
-const fogCol = new THREE.Color(), tmpCol = new THREE.Color(), glowCol = new THREE.Color(), lerp = (a, b, t) => a + (b - a) * t;
 
 function stepOnce(inp) {
   courseTime += STEP;
@@ -164,18 +170,22 @@ function stepOnce(inp) {
 
 function frame(now) {
   requestAnimationFrame(frame);
-  // экономия: не рисуем чаще, чем нужно (экраны бывают 90–120 Гц — телефон бы грелся зря)
-  const fps = game.running ? gfx.fps : 15;
+  // экономия: не рисуем чаще, чем нужно (экраны бывают 90–120 Гц — телефон бы грелся зря);
+  // во время «Замера» — без ограничения, чтобы узнать запас скорости
+  const fps = bench.running ? 1e4 : game.running ? gfx.fps : 15;
   if (now - last < 1000 / fps - 2) return;
+  const t0 = performance.now();
   const raw = (now - last) / 1000;
   last = now;
   const dt = Math.min(0.1, raw);
   clock += dt;
   const inp = input.read();
-  if (game.running) {
+  if (bench.running) {
+    bench.step(raw, player, cam);
+    descent.update(courseTime += dt, dt);
+  } else if (game.running) {
     game.elapsed += dt;
-    cam.yaw -= inp.camDX * 0.006;
-    cam.pitch = Math.max(-0.55, Math.min(1.25, cam.pitch + inp.camDY * 0.005));
+    cam.look(inp);
     camera.getWorldDirection(camDir);
     player.pickTarget(camDir);
     acc += dt;
@@ -197,67 +207,19 @@ function frame(now) {
   const scale = gfx.pixelScale();
   fires.forEach((f) => f.update(clock, scale));
   flies.forEach((f) => f.update(clock, scale));
-  updateMood();
-  motes.update(clock, player.pos, glowCol, Math.min(1, Math.max(0, (-player.pos.y - 25) / 60)), scale);
-  updateCamera(dt, inp);
+  atmosphere.update(clock, player, fires, world.goalPos);
+  motes.update(clock, player.pos, atmosphere.glow, Math.min(1, Math.max(0, (-player.pos.y - 25) / 60)), scale);
+  cam.update(dt, inp, player, game.running);
   gfx.follow(player.pos);
   hud.update(dt, player, game, camera);
   gfx.render(dt);
-}
-
-// чем глубже — тем гуще дымка, темнее свет и ярче фонарик
-function updateMood() {
-  const m = layerMix(player.pos.y), t = m.t;
-  fogCol.set(m.a.fog).lerp(tmpCol.set(m.b.fog), t);
-  scene.fog.color.copy(fogCol);
-  scene.background.copy(fogCol);
-  scene.fog.density = lerp(m.a.fogD, m.b.fogD, t);
-  const light = lerp(m.a.light, m.b.light, t);
-  gfx.hemi.intensity = 1.5 * light;
-  gfx.sun.intensity = 2.7 * Math.pow(light, 1.5);
-  player.lamp.intensity = Math.max(0, 1 - light) * 9;
-  fillLight.color.set(m.a.fill).lerp(tmpCol.set(m.b.fill), t);
-  fillLight.intensity = 1.2 + (1 - light) * 0.9;
-  fillLight.position.set(0, player.pos.y + 8, 0);
-  // ближайший костёр или кристалл на дне
-  let best = null, bd = 40;
-  for (const f of fires) { const d = f.base.distanceTo(player.pos); if (d < bd) { bd = d; best = f; } }
-  const dg = world.goalPos.distanceTo(player.pos);
-  if (dg < 60 && (!best || dg < bd)) {
-    localLight.position.copy(world.goalPos);
-    localLight.color.set('#b86bff'); localLight.distance = 45; localLight.decay = 1.4;
-    localLight.intensity = 38 + Math.sin(clock * 1.7) * 6;
-  } else if (best) {
-    localLight.position.copy(best.base).y += 0.9;
-    localLight.color.set('#ff8a3a'); localLight.distance = 16; localLight.decay = 1.6;
-    localLight.intensity = flicker(clock);
-  } else localLight.intensity = 0;
-  glowCol.set(m.a.glow).lerp(tmpCol.set(m.b.glow), t);
-  if (glowCol.r + glowCol.g + glowCol.b < 0.1) glowCol.set('#e8f0c8');
-}
-
-function updateCamera(dt, inp) {
-  // на стене, верёвке и тросе камера сама заходит за спину (если игрок не крутит её сам)
-  const wantYaw = player.cameraYaw(), wantPitch = player.cameraPitch();
-  if (!inp.looking && game.running) {
-    if (wantYaw !== null) {
-      const d = Math.atan2(Math.sin(wantYaw - cam.yaw), Math.cos(wantYaw - cam.yaw));
-      cam.yaw += d * Math.min(1, dt * 2.2);
-    }
-    if (wantPitch !== null) cam.pitch += (wantPitch - cam.pitch) * Math.min(1, dt * 1.5);
+  const cpu = performance.now() - t0;
+  meter.frame(raw, cpu);
+  if (bench.running) {
+    bench.record(raw, cpu);
+    screens.benchProgress(bench.secondsLeft);
+    if (bench.done) endBench(true);
   }
-  target.copy(player.pos);
-  target.y += 1.5;
-  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
-  let dist = cam.dist;
-  // не заглядывать сквозь скалу
-  for (let i = 1; i <= 14; i++) {
-    const d = (cam.dist * i) / 14;
-    if (abyss.solid(target.x + Math.sin(cam.yaw) * cp * d, target.y + sp * d, target.z + Math.cos(cam.yaw) * cp * d)) { dist = Math.max(1.1, d - 0.7); break; }
-  }
-  camPos.set(target.x + Math.sin(cam.yaw) * cp * dist, target.y + sp * dist, target.z + Math.cos(cam.yaw) * cp * dist);
-  camera.position.lerp(camPos, Math.min(1, dt * 10));
-  camera.lookAt(target);
 }
 
 // если телефон не тянет — сами снижаем качество (один раз за уровень)
@@ -279,11 +241,4 @@ function installFonts() {
   const st = document.createElement('style');
   st.textContent = css;
   document.head.appendChild(st);
-}
-
-function loadSave() {
-  try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch (e) { return {}; }
-}
-function writeSave() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* нет места — не страшно */ }
 }

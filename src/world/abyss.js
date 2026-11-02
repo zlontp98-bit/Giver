@@ -2,7 +2,7 @@
 // наверху вокруг устья, дно внизу. Здесь же опора под ногами и столкновения со стеной и полками.
 // Угол θ: x = sin θ · r, z = cos θ · r (ось шахты — x = z = 0).
 import * as THREE from 'three';
-import { makeNoise3D, makeRng, smoothstep, clamp } from './noise.js';
+import { makeNoise3D, makeRng, smoothstep, clamp } from '../core/noise.js';
 
 export const RIM_Y = 0;          // край бездны (плато)
 export const BOTTOM_Y = -232;    // дно

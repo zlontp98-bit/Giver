@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- края ямы, глубина, дно -->
+    <path android:fillColor="#9A7656" android:pathData="M22,58 a30,20 0 1,0 60,0 a30,20 0 1,0 -60,0 Z" />
+    <path android:fillColor="#4A3C68" android:pathData="M27,61 a25,15 0 1,0 50,0 a25,15 0 1,0 -50,0 Z" />
+    <path android:fillColor="#2A2142" android:pathData="M35,65 a17,9 0 1,0 34,0 a17,9 0 1,0 -34,0 Z" />
+    <!-- светящиеся кристаллы на дне -->
+    <path android:fillColor="#7FE8FF" android:pathData="M52,54 L57,64 L52,72 L47,64 Z" />
+    <path android:fillColor="#C77DFF" android:pathData="M59,59 L62,65 L59,70 L56,65 Z" />
+    <!-- метка «Т»: тестовая сборка -->
+    <path android:fillColor="#FF8A3D" android:pathData="M62,36 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M67,31 h10 v2.6 h-10 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M70.7,31 h2.6 v11 h-2.6 Z" />
+</vector>

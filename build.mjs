@@ -20,8 +20,9 @@ const fonts = JSON.parse(readFileSync('assets/fonts/fonts.json', 'utf8'));
 writeFileSync('src/assets.gen.js',
   `// создаётся build.mjs — не править руками\nexport const ASSETS = {\n${lines.join(',\n')}\n};\nexport const FONTS = ${JSON.stringify(fonts)};\n`);
 
-// 2. Код
+// 2. Код (версию берём из android/app/build.gradle — её видно в меню игры)
 const dev = process.argv.includes('--dev');
+const version = (readFileSync('android/app/build.gradle', 'utf8').match(/versionName\s+"([^"]+)"/) || [])[1] || 'dev';
 const result = await build({
   absWorkingDir: process.cwd(),
   entryPoints: ['src/main.js'],
@@ -33,6 +34,7 @@ const result = await build({
   minify: !dev,
   sourcemap: dev ? 'inline' : false,
   logLevel: 'warning',
+  define: { __GIVER_VERSION__: JSON.stringify(version) },
 });
 const js = result.outputFiles[0].text;
 const html = readFileSync('web/index.html', 'utf8');
@@ -53,4 +55,4 @@ const artifact = single
   .replace(/<\/head>\s*/i, '').replace(/<body>\s*/i, '').replace(/<\/body>\s*<\/html>\s*$/i, '');
 writeFileSync('dist/giver-artifact.html', artifact);
 
-console.log(`game.js: ${(js.length / 1024 / 1024).toFixed(2)} МБ`);
+console.log(`game.js: ${(js.length / 1024 / 1024).toFixed(2)} МБ, версия ${version}`);

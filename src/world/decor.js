@@ -2,8 +2,8 @@
 // светящиеся кристаллы в гротах, на дне — светящееся озерцо и огромный кристалл (цель).
 // Плюс кусты с ягодами (силы) и столкновения со стволами и камнями.
 import * as THREE from 'three';
-import { makeRng } from './noise.js';
-import { instance } from './models.js';
+import { makeRng } from '../core/noise.js';
+import { instance } from '../render/models.js';
 import { RIM_Y, BOTTOM_Y, R_OUT, LAYERS, layerAt, normA } from './abyss.js';
 
 export class World {

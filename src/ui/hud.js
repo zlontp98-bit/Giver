@@ -1,6 +1,6 @@
 // Интерфейс поверх игры: полоски, глубина, осколки, полоска спуска с лагерями, прицел крюка, кнопки, сообщения.
 import * as THREE from 'three';
-import { LAYERS, layerAt, RIM_Y } from './abyss.js';
+import { LAYERS, layerAt, RIM_Y } from '../world/abyss.js';
 
 const $ = (id) => document.getElementById(id);
 const ICON = (id) => `<svg class="ico"><use href="#i-${id}" /></svg>`;

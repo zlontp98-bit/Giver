@@ -16,12 +16,20 @@ android {
         }
     }
 
+    // Тестовая сборка «Giver Тест» (gradle ... -PgiverTest): своё имя, свой значок и свой applicationId —
+    // ставится РЯДОМ с рабочей версией «Giver» и не трогает её сохранения.
+    def giverTest = project.hasProperty('giverTest')
+
     defaultConfig {
-        applicationId "com.giver.game"
+        applicationId giverTest ? "com.giver.game.test" : "com.giver.game"
         minSdk 26
         targetSdk 34
-        versionCode 4
-        versionName "0.4"
+        versionCode 5
+        versionName "0.5-a0"
+        manifestPlaceholders = [
+            appLabel: giverTest ? "@string/app_name_test" : "@string/app_name",
+            appIcon : giverTest ? "@mipmap/ic_launcher_test" : "@mipmap/ic_launcher"
+        ]
     }
 
     compileOptions {

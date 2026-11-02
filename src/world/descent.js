@@ -6,9 +6,9 @@
 //   mushroom — прыгнуть вниз на огромный гриб: он смягчит падение
 // Плюс мостки с плато к первой полке, лагеря, осколки (собирать), подсказки и шаги для бота.
 import * as THREE from 'three';
-import { makeRng } from './noise.js';
+import { makeRng } from '../core/noise.js';
 import { RIM_Y, BOTTOM_Y, LAYERS, layerAt, normA, PH, PR } from './abyss.js';
-import { place } from './models.js';
+import { place } from '../render/models.js';
 
 const PATTERN = ['climb', 'rappel', 'jumps', 'climb', 'zip', 'mushroom', 'climb', 'rappel', 'jumps', 'zip',
   'climb', 'mushroom', 'rappel', 'climb', 'jumps', 'zip', 'climb', 'rappel', 'mushroom', 'jumps'];

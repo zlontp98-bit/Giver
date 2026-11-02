@@ -2,7 +2,7 @@
 // размножение одинаковых моделей одним вызовом рисования (InstancedMesh).
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { ASSETS } from './assets.gen.js';
+import { ASSETS } from '../assets.gen.js';
 
 // Цвета Kenney пастельные и бирюзовые — заменяем по имени материала.
 export const PALETTE = {

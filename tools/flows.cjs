@@ -61,7 +61,8 @@ const { chromium } = require('playwright');
   await touch('pointerup', 5, 0, 0, '#bGrab');
   await page.waitForTimeout(300);
   console.log('снова «Хват» в падении:', await st());
-  await page.screenshot({ path: 'flow-climb.png' });
+  require('fs').mkdirSync(require('path').resolve(__dirname, 'out'), { recursive: true });
+  await page.screenshot({ path: require('path').resolve(__dirname, 'out', 'flow-climb.png') });
   // 3. пауза кнопкой «Назад»
   const back1 = await page.evaluate(() => window.__onBack());
   await page.waitForTimeout(300);

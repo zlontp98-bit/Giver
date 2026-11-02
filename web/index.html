@@ -138,6 +138,26 @@
   .stats b { display: block; font: 700 26px var(--display); font-variant-numeric: tabular-nums; }
   .stats span { font-size: 12px; color: #5d7080; }
   .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  /* счётчик FPS и «Замер» */
+  #fps { position: fixed; left: 50%; bottom: calc(6px + var(--b)); transform: translateX(-50%); z-index: 5; padding: 3px 10px; border-radius: 999px;
+    background: var(--glass-strong); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap; }
+  body:not(.playing):not(.bench) #fps { display: none; }
+  #benchBar { position: fixed; left: 50%; top: calc(10px + var(--t)); transform: translateX(-50%); z-index: 6; display: none; gap: 10px; align-items: center;
+    padding: 8px 16px; border-radius: 14px; background: var(--glass-strong); font-size: 15px; }
+  body.bench #benchBar { display: flex; }
+  body.bench #hud, body.bench #joy { display: none; }
+  .big { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 2px; }
+  .big b { font: 700 54px/1 var(--display); color: #c9541a; font-variant-numeric: tabular-nums; }
+  .big span { font-size: 14px; color: #5d7080; }
+  .bstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+  .bstats div { background: #fff1e3; border-radius: 12px; padding: 8px; text-align: center; }
+  .bstats b { display: block; font: 700 19px var(--display); font-variant-numeric: tabular-nums; }
+  .bstats span { font-size: 11px; color: #5d7080; line-height: 1.2; display: block; }
+  .small { font-size: 12px; color: #5d7080; line-height: 1.35; margin: 4px 0; }
+  .hist { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: #43525e; }
+  .row2 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .ver { font-size: 12px; color: var(--muted); }
+  .card .ver { color: #5d7080; }
   @media (max-height: 460px) { .logo h1 { font-size: 64px; } .card { padding: 14px 16px; } .how div { font-size: 13px; } }
   @media (prefers-reduced-motion: reduce) { #reticle .ring { animation: none; } }
 </style>
@@ -188,6 +208,8 @@
   </div>
 </div>
 <div id="joy"><div id="knob"></div></div>
+<div id="fps" hidden></div>
+<div id="benchBar"><b>Замер скорости…</b><span id="benchLeft">30 с</span><span class="ver"></span></div>
 
 <div class="screen show" id="sStart">
   <div class="logo">
@@ -201,6 +223,7 @@
       </div>
       <div class="best">Телефон греется — выбери «Низкая»</div>
       <div class="best" id="best"></div>
+      <div class="ver"></div>
     </div>
   </div>
   <div class="card">
@@ -221,6 +244,12 @@
   <div class="seg" data-quality>
     <button type="button" data-q="low">Низкая</button><button type="button" data-q="medium">Средняя</button><button type="button" data-q="high">Высокая</button>
   </div>
+  <div class="row2">
+    <div class="lbl">Счётчик FPS</div>
+    <div class="seg" data-fps><button type="button" data-v="0">Нет</button><button type="button" data-v="1">Да</button></div>
+    <button class="secondary" id="bench" type="button">Замер скорости · 30 с</button>
+  </div>
+  <p class="small">«Замер» пролетит по Бездне и покажет, сколько кадров в секунду тянет телефон на этой графике. <span class="ver"></span></p>
   <div class="acts">
     <button class="primary" id="resume" type="button">Продолжить</button>
     <button class="secondary" id="toCamp" type="button">В лагерь</button>
@@ -233,6 +262,20 @@
   <h2>Ой, сорвался!</h2>
   <p id="deadTxt">Слишком высоко упал.</p>
   <div class="acts"><button class="primary" id="respawn" type="button">Продолжить</button></div>
+</div></div>
+
+<div class="screen" id="sBench"><div class="card">
+  <h2>Замер скорости</h2>
+  <div class="big"><b id="bFps">0</b><span>кадров в секунду в среднем<br>(графика «<span id="bQual"></span>», без ограничения)</span></div>
+  <div class="bstats">
+    <div><b id="bLoad">—</b><span>загрузка в игре (меньше — телефон холоднее)</span></div>
+    <div><b id="bLow">—</b><span>самые медленные кадры (1%)</span></div>
+    <div><b id="bCpu">—</b><span>работа процессора на кадр</span></div>
+  </div>
+  <p class="small" id="bInfo"></p>
+  <div class="lbl">Прошлые замеры</div>
+  <ul class="hist" id="bHist"></ul>
+  <div class="acts"><button class="primary" id="benchOk" type="button">Готово</button></div>
 </div></div>
 
 <div class="screen" id="sWin"><div class="card">

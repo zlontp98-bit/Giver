@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- имя на рабочем столе: рабочая версия и тестовая (см. app/build.gradle, giverTest) -->
+    <string name="app_name">Giver</string>
+    <string name="app_name_test">Giver Тест</string>
+</resources>

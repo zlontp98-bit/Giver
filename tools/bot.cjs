@@ -26,6 +26,7 @@ const { chromium } = require('playwright');
     async function walkTo(to, tol = 0.45, maxT = 40) {
       const t0 = t;
       while (hd(P.pos, to) > tol) {
+        if (g.game.won) return;             // уже у кристалла на дне
         if (t - t0 > maxT) throw new Error(`walk timeout to ${to.x.toFixed(1)},${to.y.toFixed(1)},${to.z.toFixed(1)} at ${P.pos.x.toFixed(1)},${P.pos.y.toFixed(1)},${P.pos.z.toFixed(1)} st=${P.state}`);
         const i = P.state === 'ground' && hd(P.pos, to) < 1.2 ? (() => { const s = steerTo(to); s.my = 0.5; return s; })() : steerTo(to);
         step(i);
@@ -184,6 +185,7 @@ const { chromium } = require('playwright');
         else if (s.type === 'drop') await doDrop(s);
         idx++;
         if (P.dead) throw new Error('dead');
+        if (g.game.won) break;              // дошли до кристалла на дне — дальше идти некуда
       }
     } catch (e) { log.push('STOP at step ' + idx + ' (' + D.route[idx].type + '): ' + e.message); }
     return { log, idx, total: D.route.length, t: t.toFixed(1), y: P.pos.y.toFixed(1), won: g.game.won, shards: g.game.shards + '/' + g.game.shardsTotal, hp: P.health.toFixed(0), hurtTotal };

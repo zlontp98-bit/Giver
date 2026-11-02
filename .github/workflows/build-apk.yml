@@ -1,9 +1,11 @@
 name: Build APK
 
+# main — рабочая версия «Giver» (релиз latest).
+# Любая другая ветка (dev) — тестовая «Giver Тест» (релиз test): ставится рядом и рабочую не трогает.
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, dev]
     # заметки и пробы не меняют игру — APK заново не собираем
     paths-ignore:
       - '**.md'
@@ -45,15 +47,22 @@ jobs:
       - name: Build APK
         run: |
           set -euo pipefail
-          gradle -p android assembleDebug --no-daemon --stacktrace
-          cp android/app/build/outputs/apk/debug/app-debug.apk Giver.apk
-          ls -lh Giver.apk
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            gradle -p android assembleDebug --no-daemon --stacktrace
+            APK=Giver.apk; TAG=latest; TITLE="Giver APK"; PRE=""
+          else
+            gradle -p android assembleDebug -PgiverTest --no-daemon --stacktrace
+            APK=GiverTest.apk; TAG=test; TITLE="Giver Тест APK"; PRE="--prerelease"
+          fi
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$APK"
+          ls -lh "$APK"
+          { echo "APK=$APK"; echo "TAG=$TAG"; echo "TITLE=$TITLE"; echo "PRE=$PRE"; } >> "$GITHUB_ENV"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Giver-APK
-          path: Giver.apk
+          name: ${{ env.TAG }}-APK
+          path: ${{ env.APK }}
           if-no-files-found: error
           retention-days: 14
 
@@ -61,8 +70,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest Giver.apk \
-            --title "Giver APK" \
-            --notes "Автоматическая сборка из коммита ${GITHUB_SHA}" \
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" "$APK" $PRE \
+            --title "$TITLE" \
+            --notes "Автоматическая сборка из ветки ${GITHUB_REF_NAME}, коммит ${GITHUB_SHA}" \
             --target "${GITHUB_SHA}"
