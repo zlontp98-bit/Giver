@@ -64,3 +64,32 @@ export const smoothstep = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 export const lerp = (a, b, t) => a + (b - a) * t;
+
+// Градиентный шум 3D (для стен бездны: угол → cos/sin, плюс высота — без шва по кругу).
+export function makeNoise3D(seed) {
+  const rng = makeRng(seed);
+  const perm = new Uint8Array(512);
+  const p = [];
+  for (let i = 0; i < 256; i++) p.push(i);
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  const G = [[1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0], [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1],
+    [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1]];
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  const grad = (h, x, y, z) => { const g = G[h % 12]; return g[0] * x + g[1] * y + g[2] * z; };
+  return function noise(x, y, z) {
+    const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
+    const xf = x - X, yf = y - Y, zf = z - Z;
+    const xi = X & 255, yi = Y & 255, zi = Z & 255;
+    const u = fade(xf), v = fade(yf), w = fade(zf);
+    const a = perm[xi] + yi, aa = perm[a] + zi, ab = perm[a + 1] + zi;
+    const b = perm[xi + 1] + yi, ba = perm[b] + zi, bb = perm[b + 1] + zi;
+    const l = (t, q, r) => q + t * (r - q);
+    return l(w,
+      l(v, l(u, grad(perm[aa], xf, yf, zf), grad(perm[ba], xf - 1, yf, zf)), l(u, grad(perm[ab], xf, yf - 1, zf), grad(perm[bb], xf - 1, yf - 1, zf))),
+      l(v, l(u, grad(perm[aa + 1], xf, yf, zf - 1), grad(perm[ba + 1], xf - 1, yf, zf - 1)), l(u, grad(perm[ab + 1], xf, yf - 1, zf - 1), grad(perm[bb + 1], xf - 1, yf - 1, zf - 1))));
+  };
+}

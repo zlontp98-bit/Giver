@@ -32,7 +32,7 @@ function points(count, base, material) {
 }
 
 export class Campfire {
-  constructor(scene, base) {
+  constructor(scene, base, { light = true } = {}) {
     this.uniforms = [];
     const mk = (opts, frag, blending) => {
       const u = {
@@ -63,17 +63,22 @@ export class Campfire {
     const b = base.clone(); b.y += 0.15;
     this.objs = [points(26, b.clone().add(new THREE.Vector3(0, 0.5, 0)), smoke), points(110, b, flame), points(40, b, sparks)];
     this.objs.forEach((o) => scene.add(o));
-    // тёплый свет от огня (мерцает)
-    this.light = new THREE.PointLight('#ff8a3a', 28, 16, 1.6);
-    this.light.position.copy(base).add(new THREE.Vector3(0, 0.9, 0));
-    scene.add(this.light);
+    this.base = base.clone();
+    // тёплый свет от огня (мерцает); можно без своего света — тогда светит общий (см. main.js)
+    if (light) {
+      this.light = new THREE.PointLight('#ff8a3a', 28, 16, 1.6);
+      this.light.position.copy(base).add(new THREE.Vector3(0, 0.9, 0));
+      scene.add(this.light);
+    }
   }
   update(time, scale) {
     for (const u of this.uniforms) { u.uTime.value = time; u.uScale.value = scale; }
-    this.light.intensity = 26 + Math.sin(time * 13) * 3 + Math.sin(time * 7.3) * 4 + Math.sin(time * 23.0) * 2;
+    if (this.light) this.light.intensity = flicker(time);
   }
   setVisible(v) { this.objs.forEach((o) => { o.visible = v; }); }
 }
+
+export const flicker = (time) => 26 + Math.sin(time * 13) * 3 + Math.sin(time * 7.3) * 4 + Math.sin(time * 23.0) * 2;
 
 // Светлячки: медленно кружат в воздухе вокруг лагеря.
 export class Fireflies {

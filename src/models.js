@@ -45,7 +45,8 @@ export function loadTexture(name, srgb) {
   return tx;
 }
 
-// Много копий одной модели: list = [{x, y, z, s, r, sy?}]. Возвращает созданные InstancedMesh.
+// Много копий одной модели: list = [{x, y, z, s, r, sy?, q?}] (q — свой поворот вместо r).
+// Возвращает созданные InstancedMesh.
 export function instance(scene, root, list, { shadow = true } = {}) {
   if (!list.length) return [];
   root.updateMatrixWorld(true);
@@ -55,7 +56,7 @@ export function instance(scene, root, list, { shadow = true } = {}) {
     if (!o.isMesh) return;
     const im = new THREE.InstancedMesh(o.geometry, o.material, list.length);
     list.forEach((p, i) => {
-      q.setFromAxisAngle(up, p.r || 0);
+      if (p.q) q.copy(p.q); else q.setFromAxisAngle(up, p.r || 0);
       m.compose(new THREE.Vector3(p.x, p.y, p.z), q, new THREE.Vector3(p.s, p.s * (p.sy || 1), p.s)).multiply(o.matrixWorld);
       im.setMatrixAt(i, m);
     });

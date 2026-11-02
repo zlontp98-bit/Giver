@@ -1,5 +1,5 @@
-// Управление: на телефоне — джойстик слева, поворот камеры пальцем справа, кнопки «крюк», «прыжок», «бег».
-// На компьютере — WASD/стрелки, Shift — бег, пробел — прыжок, E или правая кнопка мыши — крюк, мышь — камера.
+// Управление: на телефоне — джойстик слева, поворот камеры пальцем справа, кнопки «хват», «крюк», «прыжок», «бег».
+// На компьютере — WASD/стрелки, Shift — бег, пробел — прыжок, Q — хват, E или правая кнопка мыши — крюк, мышь — камера.
 
 export class Input {
   constructor(layer, ui) {
@@ -7,7 +7,7 @@ export class Input {
     this.joy = { id: null, x0: 0, y0: 0, x: 0, y: 0 };
     this.look = { id: null, x: 0, y: 0 };
     this.camDX = 0; this.camDY = 0;
-    this.jump = false; this.hook = false;
+    this.jump = false; this.hook = false; this.grab = false;
     this.keys = new Set();
     this.lastLook = 0;
     this.ui = ui;
@@ -32,6 +32,7 @@ export class Input {
     };
     press(ui.btnJump, () => { this.jump = true; });
     press(ui.btnHook, () => { this.hook = true; });
+    press(ui.btnGrab, () => { this.grab = true; });
     press(ui.btnRun, () => { this.runToggle = !this.runToggle; ui.btnRun.classList.toggle('on', this.runToggle); });
 
     window.addEventListener('keydown', (e) => {
@@ -39,6 +40,7 @@ export class Input {
       this.keys.add(e.code);
       if (e.code === 'Space') { this.jump = true; e.preventDefault(); }
       if (e.code === 'KeyE' || e.code === 'KeyF') this.hook = true;
+      if (e.code === 'KeyQ' || e.code === 'KeyG') this.grab = true;
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -96,16 +98,16 @@ export class Input {
     }
     const out = {
       mx, my, run,
-      jump: this.jump, hook: this.hook,
+      jump: this.jump, hook: this.hook, grab: this.grab,
       camDX: this.camDX, camDY: this.camDY,
       looking: this.look.id !== null || performance.now() - this.lastLook < 1200,
     };
-    this.jump = false; this.hook = false; this.camDX = 0; this.camDY = 0;
+    this.jump = false; this.hook = false; this.grab = false; this.camDX = 0; this.camDY = 0;
     return out;
   }
 
   reset() {
     this.joy.id = null; this.look.id = null; this.ui.hideJoystick();
-    this.jump = false; this.hook = false; this.keys.clear();
+    this.jump = false; this.hook = false; this.grab = false; this.keys.clear();
   }
 }

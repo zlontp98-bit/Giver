@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Giver — восхождение</title>
+<title>Giver — спуск в Бездну</title>
 <style>
-  /* Игра во весь экран; интерфейс — тёмное стекло по краям, тёплый оранжевый акцент (костёр, крюк) */
+  /* Игра во весь экран; интерфейс — тёмное стекло по краям, тёплый оранжевый акцент (костёр, крюк), голубой — кристаллы */
   :root {
     --cream: #fff6ea; --muted: #d9e3e8; --ink: #1d2830;
     --glass: rgba(16, 26, 34, 0.58); --glass-strong: rgba(16, 26, 34, 0.72); --line: rgba(255, 255, 255, 0.22);
@@ -45,13 +45,13 @@
   #chips { display: flex; gap: 6px; margin-top: 4px; }
   .chip { display: flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: var(--glass); font-size: 13px; font-variant-numeric: tabular-nums; text-shadow: none; }
   .chip .ico { width: 14px; height: 14px; }
-  #starIco { fill: var(--st); stroke: none; }
+  #starIco { fill: #7fe8ff; stroke: none; }
   #starChip.pop { animation: pop .35s ease-out; }
-  @keyframes pop { 40% { transform: scale(1.25); background: rgba(255, 210, 58, .45); } }
+  @keyframes pop { 40% { transform: scale(1.25); background: rgba(95, 224, 255, .45); } }
 
-  /* полоска высоты: слева море, справа флаг; палатки — лагеря */
+  /* полоска спуска: слева край Бездны, справа дно; палатки — лагеря */
   #track { position: relative; height: 8px; margin: 0 8px 0 4px; border-radius: 4px;
-    background: linear-gradient(90deg, rgba(63, 143, 207, .85), rgba(255, 255, 255, .3) 25%, rgba(255, 255, 255, .55)); }
+    background: linear-gradient(90deg, #8fd16a, #6f5546 25%, #5b6680 55%, #6a4f9a 80%, #b86bff); }
   #track .mk { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 16px; height: 16px; color: var(--cream); }
   #track .mk.done { color: var(--ember-hi); }
   #track .mk .ico { width: 16px; height: 16px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6)); }
@@ -98,6 +98,10 @@
   #bHook.on { background: #3d8bd4; box-shadow: 0 0 0 4px rgba(120, 190, 255, .45); }
   #bJump { width: 80px; height: 80px; right: 116px; bottom: 4px; }
   #bRun { width: 58px; height: 58px; right: 24px; bottom: 124px; }
+  #bGrab { width: 80px; height: 80px; right: 110px; bottom: 98px; }
+  #bGrab.ready { background: radial-gradient(circle at 50% 40%, #7fe8ff, #2fa8d0 70%); box-shadow: 0 0 0 4px rgba(127, 232, 255, .4), 0 0 22px rgba(63, 208, 255, .7); }
+  #bGrab.ready small, #bGrab.on small { color: var(--cream); }
+  #bGrab.on { background: #3d8bd4; box-shadow: 0 0 0 4px rgba(120, 190, 255, .45); }
   #bRun .ico { width: 24px; height: 24px; }
   #bRun.on { background: rgba(255, 210, 58, .55); }
 
@@ -151,6 +155,7 @@
   <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></symbol>
   <symbol id="i-stick" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="3.2" /></symbol>
+  <symbol id="i-gem" viewBox="0 0 24 24"><path d="M12 2.5 18 9l-6 12.5L6 9zM6 9h12M12 2.5 9.5 9 12 21.5 14.5 9z" /></symbol>
   <symbol id="i-hand" viewBox="0 0 24 24"><path d="M7 11V5.5a1.5 1.5 0 0 1 3 0V11M10 10V4a1.5 1.5 0 0 1 3 0v6M13 10V5a1.5 1.5 0 0 1 3 0v7M16 11.5V8a1.5 1.5 0 0 1 3 0v5.5A7.5 7.5 0 0 1 11.5 21c-2.6 0-4-1-5.6-3L3.4 14a1.6 1.6 0 0 1 2.4-2L7 13.5" /></symbol>
 </svg>
 
@@ -164,9 +169,9 @@
   </div>
   <div id="info">
     <div id="altV">0 м</div>
-    <div id="altT">до вершины — м</div>
+    <div id="altT">край Бездны</div>
     <div id="chips">
-      <div class="chip" id="starChip"><svg class="ico" id="starIco"><use href="#i-star" /></svg><span id="stars">0/0</span></div>
+      <div class="chip" id="starChip"><svg class="ico" id="starIco"><use href="#i-gem" /></svg><span id="stars">0/0</span></div>
       <div class="chip"><svg class="ico"><use href="#i-clock" /></svg><span id="time">0:00</span></div>
     </div>
   </div>
@@ -177,6 +182,7 @@
   <div id="joyHint">води пальцем — идти</div>
   <div id="btns">
     <button class="btn" id="bRun" type="button" aria-label="Бег"><svg class="ico"><use href="#i-run" /></svg></button>
+    <button class="btn" id="bGrab" type="button"><svg class="ico"><use href="#i-hand" /></svg><small id="grabLbl">хват</small></button>
     <button class="btn" id="bJump" type="button"><svg class="ico"><use href="#i-jump" /></svg><small>прыжок</small></button>
     <button class="btn" id="bHook" type="button"><svg class="ico"><use href="#i-hook" /></svg><small id="hookLbl">крюк</small></button>
   </div>
@@ -186,7 +192,7 @@
 <div class="screen show" id="sStart">
   <div class="logo">
     <h1>GIVER</h1>
-    <p>восхождение с крюком</p>
+    <p>спуск в Бездну</p>
     <div class="menu">
       <div><button class="primary" id="go" type="button">Играть</button></div>
       <div class="lbl">Графика</div>
@@ -201,9 +207,10 @@
     <h2>Как играть</h2>
     <div class="how">
       <div><span class="ic"><svg class="ico"><use href="#i-stick" /></svg></span><span>Левая половина экрана — идти, правая — повернуть камеру.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-hook" /></svg></span><span>Руками на скалы не залезть. Наведи камеру на светящееся кольцо и жми <b>Крюк</b> — подтянет наверх. Ещё раз — отпустить.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-jump" /></svg></span><span>Прыгай по доскам, батутам-грибам и платформам. На верёвке прыжок — сорваться с разгоном.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-star" /></svg></span><span>Собирай звёзды. Палатки — точки сохранения, ягоды — силы.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-hand" /></svg></span><span>У стены жми <b>Хват</b> — повиснешь на руках. Джойстик — лезть вниз, вверх и вбок. Силы тают: отдыхай на уступах.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-hook" /></svg></span><span>Светящееся кольцо: наведи камеру и жми <b>Крюк</b>. На верёвке джойстик вниз — спускаться. У троса — прокатишься через бездну.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-jump" /></svg></span><span>Прыгай по парящим камням, огромный гриб смягчит падение. Падать высоко — больно.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-gem" /></svg></span><span>Собирай светящиеся осколки. Палатки — точки сохранения, ягоды — силы.</span></div>
     </div>
   </div>
 </div>
@@ -229,10 +236,10 @@
 </div></div>
 
 <div class="screen" id="sWin"><div class="card">
-  <h2>Вершина!</h2>
+  <h2>Дно Бездны!</h2>
   <div class="stats">
     <div><b id="wTime">0:00</b><span>время</span></div>
-    <div><b id="wStars">0/0</b><span>звёзды</span></div>
+    <div><b id="wStars">0/0</b><span>осколки</span></div>
   </div>
   <p id="winTxt"></p>
   <div class="acts"><button class="primary" id="again" type="button">Ещё раз</button></div>

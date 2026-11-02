@@ -1,5 +1,6 @@
-// Интерфейс поверх игры: полоски, высота, звёзды, полоска высоты с лагерями, прицел крюка, сообщения.
+// Интерфейс поверх игры: полоски, глубина, осколки, полоска спуска с лагерями, прицел крюка, кнопки, сообщения.
 import * as THREE from 'three';
+import { LAYERS, layerAt, RIM_Y } from './abyss.js';
 
 const $ = (id) => document.getElementById(id);
 const ICON = (id) => `<svg class="ico"><use href="#i-${id}" /></svg>`;
@@ -13,6 +14,7 @@ export class Hud {
     this.toastEl = $('toast'); this.hurtEl = $('hurt');
     this.joy = $('joy'); this.knob = $('knob'); this.joyHint = $('joyHint');
     this.btnJump = $('bJump'); this.btnHook = $('bHook'); this.btnRun = $('bRun'); this.hookLbl = $('hookLbl');
+    this.btnGrab = $('bGrab'); this.grabLbl = $('grabLbl');
     this.reticle = $('reticle'); this.retD = $('retD');
     this.track = $('track'); this.me = $('me');
     this.toastTimer = 0;
@@ -20,20 +22,20 @@ export class Hud {
     this.v = new THREE.Vector3();
   }
 
-  // метки на полоске высоты: лагеря и флаг
-  setupTrack(summitY, camps) {
-    this.summitY = summitY;
+  // метки на полоске спуска: лагеря и дно
+  setupTrack(bottomY, camps) {
+    this.bottomY = bottomY;
     this.campMarks = camps.map((c) => {
       const el = document.createElement('div');
       el.className = 'mk';
       el.innerHTML = ICON('tent');
-      el.style.left = `${(c.pos.y / summitY) * 100}%`;
+      el.style.left = `${(c.pos.y / bottomY) * 100}%`;
       this.track.appendChild(el);
       return { el, c };
     });
     const flag = document.createElement('div');
     flag.className = 'mk';
-    flag.innerHTML = ICON('flag');
+    flag.innerHTML = ICON('gem');
     flag.style.left = '100%';
     this.track.appendChild(flag);
   }
@@ -53,15 +55,20 @@ export class Hud {
     this.set('hp', this.hp.style, 'width', `${player.health.toFixed(0)}%`);
     this.set('st', this.st.style, 'width', `${player.stamina.toFixed(0)}%`);
     this.cls('low', this.stBar, 'low', player.stamina < 25 && player.state !== 'ground');
-    const alt = Math.max(0, Math.round(player.pos.y));
-    this.set('alt', this.altV, 'textContent', `${alt} м`);
-    this.set('altT', this.altT, 'textContent', `до вершины ${Math.max(0, Math.round(this.summitY - player.pos.y))} м`);
+    const y = player.pos.y;
+    this.set('alt', this.altV, 'textContent', `${Math.max(0, Math.round(-y))} м`);
+    this.set('altT', this.altT, 'textContent', y > RIM_Y - 1 ? 'край Бездны' : LAYERS[layerAt(y)].name);
     this.set('time', this.time, 'textContent', fmtTime(game.elapsed));
-    this.set('stars', this.starsEl, 'textContent', `${game.stars}/${game.starsTotal}`);
-    this.set('me', this.me.style, 'left', `${Math.max(0, Math.min(100, (player.pos.y / this.summitY) * 100)).toFixed(1)}%`);
+    this.set('stars', this.starsEl, 'textContent', `${game.shards}/${game.shardsTotal}`);
+    this.set('me', this.me.style, 'left', `${Math.max(0, Math.min(100, (y / this.bottomY) * 100)).toFixed(1)}%`);
     if (this.campMarks) for (const m of this.campMarks) this.cls(`camp${m.c.index}`, m.el, 'done', m.c.reached);
-    // кнопка крюка: светится, когда есть кольцо; синяя, когда висим
-    const onRope = player.state === 'rope' || !!player.hook;
+    // кнопка «Хват»: светится у стены; синяя, когда висим на руках
+    const climbing = player.state === 'climb' || (player.state === 'mantle' && player.mantle.then === 'climb');
+    this.cls('grabReady', this.btnGrab, 'ready', !climbing && player.canGrab);
+    this.cls('grabOn', this.btnGrab, 'on', climbing);
+    this.set('grabLbl', this.grabLbl, 'textContent', climbing ? 'отпустить' : 'хват');
+    // кнопка крюка: светится, когда есть кольцо; синяя, когда висим на верёвке или тросе
+    const onRope = player.state === 'rope' || player.state === 'zip' || !!player.hook || (player.state === 'mantle' && (player.mantle.then === 'rope' || player.mantle.then === 'zip'));
     this.cls('ready', this.btnHook, 'ready', !onRope && !!player.target);
     this.cls('ropeOn', this.btnHook, 'on', onRope);
     this.set('hookLbl', this.hookLbl, 'textContent', onRope ? 'отпустить' : 'крюк');
