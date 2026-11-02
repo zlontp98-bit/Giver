@@ -178,6 +178,50 @@ const path = require('path');
         await walkTo(gi, { tol: 2.5, maxT: 90 });
       }],
     ];
+    // ——— второй путь (node tools/bot.cjs alt): трос со смотровой, арка, тросы по столбам, трос с лагеря на дно ———
+    const zipAnchors = P.anchors.filter((a) => a.kind === 'zip');
+    const camDirOf = () => new V(-Math.sin(cam.yaw) * Math.cos(cam.pitch), -Math.sin(cam.pitch), -Math.cos(cam.yaw) * Math.cos(cam.pitch));
+    async function rideZip(i) {
+      const a = zipAnchors[i], z = a.zip, back = z.dir.clone().setY(0).normalize();
+      await walkTo(new V(z.a.x - back.x * 1.3, z.a.y, z.a.z - back.z * 1.3), { tol: 0.8 });
+      cam.yaw = Math.atan2(-back.x, -back.z); cam.pitch = 0.1;
+      step(blank());
+      const tg = P.pickTarget(camDirOf());
+      if (tg !== a) throw new Error(`трос «${a.name}»: прицел не на тросе (${tg ? tg.kind : 'нет'})`);
+      const i2 = blank(); i2.hook = true; step(i2);
+      const t0 = t;
+      while (P.hook || P.state === 'mantle' || P.state === 'zip') { step(blank()); if (t - t0 > 30) throw new Error('долго еду'); }
+      while (P.state === 'air') step(blank());
+      log.push(`  трос «${a.name}» (${z.len.toFixed(0)} м): ${(t - t0).toFixed(1)} с, приехал y=${P.pos.y.toFixed(1)}`);
+    }
+    const archPts = (n) => {
+      // по гребню арки от террасы к столбу 4
+      const A = [L.aX + 92, -31, L.aZ + 12], p4 = L.pillars[3].pos, B = [p4[0] - 4, -38.5, p4[2] - 3], out = [];
+      for (let k = 1; k <= n; k++) { const u = k / n; out.push(new V(A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u - 7 * 4 * u * (1 - u) + 4.0, A[2] + (B[2] - A[2]) * u)); }
+      return out;
+    };
+    const altStages = [
+      ['посёлок → смотровая → трос на террасу', async () => {
+        await walkPts([v([L.settle.x, 0, L.settle.z + 16]), v([0, 0, L.settle.z + 40]), v([0, 0, -(Rn + 9)])]);
+        await rideZip(0);
+      }],
+      ['терраса → арка → столб', async () => {
+        await walkPts([v([70, -24, -186]), v([95, -27, -173]), v([L.aX + 88, -30, L.aZ + 6])], { tol: 1.2 });
+        await walkPts(archPts(14), { tol: 1.0, maxDrop: 4 });
+        await walkTo(v(L.pillars[3].pos), { tol: 2.0 });
+      }],
+      ['тросы по столбам → шахта', async () => {
+        for (let i = 1; i <= 4; i++) await rideZip(i);
+      }],
+      ['Заброшенная шахта', stages[4][1]],
+      ['траверс → Затерянный лагерь', stages[5][1]],
+      ['трос с лагеря на дно', async () => {
+        await rideZip(5);
+        await walkTo(new V(L.lake.x - L.lake.rx - 4, -204, L.lake.z), { tol: 2, maxT: 120 });
+      }],
+    ];
+    if (only === 'alt') stages.splice(0, stages.length, ...altStages);
+
     // начать с середины: node tools/bot.cjs <номер этапа> (герой переносится на начало этапа)
     const starts = { 4: () => lp(Lg.ab, 0.04), 5: () => lp(Lg.mineIn, 0.85), 6: () => lp(Lg.mineOut, 0.05), 7: () => v(L.campD.center).add(new V(0, 2, 0)), 8: () => lp(Lg.scree, 0.05) };
     let from = 1;

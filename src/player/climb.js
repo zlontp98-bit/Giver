@@ -46,7 +46,7 @@ export class ClimbMethods {
     if (!s) { if (this.state === 'ground') this.ev.message('Подойди вплотную к скале или к краю'); return; }
     if (this.stamina < 4) { this.ev.message('Нет сил держаться — отдохни'); return; }
     if (this.state === 'air') { this.spend(COST.grab); if (this.ev.caught) this.ev.caught(); }
-    if (this.rope) this.rope = null;
+    // верёвка (если была) остаётся — это страховка
     this.climb = { n: s.n.clone() };
     const c = this.stick(s.center, s.n);
     const to = c.clone().setY(c.y - CH);
@@ -115,6 +115,8 @@ export class ClimbMethods {
       }
     }
     this.facing = Math.atan2(-n.x, -n.z);
+    if (this.rope) this.ropePayOut();
+    if (input.hook) this.fireHook();
     if (input.grab) this.letGo(0.6, 0);
     else if (input.jump) { this.spend(COST.jump); this.letGo(4.2, 3.2); }
     else if (this.stamina <= 0) { this.letGo(0.4, 0); this.ev.message('Силы кончились — руки разжались!'); }

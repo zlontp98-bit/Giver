@@ -5,8 +5,10 @@ export const SAFE_FALL = 6, DEADLY_FALL = 32;
 export const CLIMB_UP = 1.5, CLIMB_DOWN = 2.1, CLIMB_SIDE = 1.7, WALL_OFF = 0.42;
 export const HANG = 1.9;                                   // руки над ногами, когда висим
 export const ROPE_MIN = 1.0, ROPE_MAX = 75, ROPE_DOWN = 5, ROPE_UP = 2.2;
-export const HOOK_RANGE = 14;
-export const ZIP_RANGE = 7;
+export const HOOK_RANGE = 24;                              // крюк за любую скалу
+export const RING_RANGE = 40;                              // особые точки (кольца) видно и цепляет дальше
+export const ZIP_RANGE = 7;                                // трос — подойди к началу
+export const AIM_UP = 0.3;                                 // прицел крюка выше центра камеры (рад)
 export const COST = { run: 8, jump: 3, climb: 6.5, hang: 2.2, grab: 10, rope: 1.2, ropeUp: 7, regen: 22 };
 export const PR = 0.33, PH = 1.75;                          // герой: радиус и рост
 export const WALKABLE = 0.7;                                // круче — уже не пройти пешком (≈45°)

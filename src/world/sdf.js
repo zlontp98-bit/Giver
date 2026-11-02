@@ -140,12 +140,15 @@ export class SdfWorld {
   }
 
   // луч до скалы (шагами по расстоянию); вернёт расстояние или -1
-  raycast(ox, oy, oz, dx, dy, dz, maxT, minStep = 0.05) {
+  // луч до скалы: t (или −1). hit — «толщина» луча: с 0.5 луч цепляет скалу, пройдя рядом (удобно целиться).
+  // Шаг не больше 2.5 м: детали считаются только в своих коробках, и вдали от них f бывает завышено —
+  // без предела луч перепрыгивал плато и столбы.
+  raycast(ox, oy, oz, dx, dy, dz, maxT, minStep = 0.05, hit = 0.04) {
     let t = 0;
-    for (let i = 0; i < 160 && t < maxT; i++) {
+    for (let i = 0; i < 240 && t < maxT; i++) {
       const h = this.f(ox + dx * t, oy + dy * t, oz + dz * t);
-      if (h < 0.04) return t;
-      t += Math.max(h * 0.9, minStep);
+      if (h < hit) return t;
+      t += Math.min(2.5, Math.max(h * 0.9, minStep));
     }
     return -1;
   }

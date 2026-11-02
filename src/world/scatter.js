@@ -8,6 +8,7 @@ const TAU = Math.PI * 2;
 
 export function scatterRules(W, L) {
   const rules = [];
+  const nearZip = (x, z) => (L.zips || []).some((q) => Math.hypot(x - q.a[0], z - q.a[2]) < 6 || Math.hypot(x - q.b[0], z - q.b[2]) < 7);
   const settleD = (x, z) => Math.hypot(x - L.settle.x, z - L.settle.z);
   const onPath = (x, z) => Math.abs(x - L.settle.x) < 9 && z > L.settle.z && z < -(L.Rn - 10);
   const nearLookout = (x, z) => Math.hypot(x - L.lookout.b[0], z - L.lookout.b[2]) < 18;
@@ -43,7 +44,9 @@ export function scatterRules(W, L) {
     const a = rng() * TAU, k = Math.sqrt(rng());
     return [L.aX + Math.cos(a) * 96 * k, L.aZ + Math.sin(a) * 50 * k];
   };
-  const streamFar = (x, z) => {
+  // (x, y, z) — так зовёт запекание; ещё не у концов тросов (там приземляются)
+  const streamFar = (x, y, z) => {
+    if (nearZip(x, z)) return false;
     for (const s of L.streamA) if (Math.hypot(x - s[0], z - s[2]) < 6) return false;
     return Math.hypot(x - L.poolA.x, z - L.poolA.z) > 11;
   };
@@ -63,17 +66,18 @@ export function scatterRules(W, L) {
   // ——— 2. Каменные уступы и верхушки столбов (восток) ———
   const east = (rng) => [60 + rng() * 140, -110 + rng() * 200];
   const tB = { yTop: -24, yBot: -100, minNy: 0.8 };
-  add('grass', 260, 1.4, 2.2, { ...tB, pick: east });
-  add('bush', 30, 2.0, 3.0, { ...tB, pick: east });
-  add('rock', 30, 1.6, 3.0, { ...tB, pick: east });
-  add('pine', 10, 3.2, 4.4, { ...tB, pick: (rng) => { const p = L.pillars[Math.floor(rng() * L.pillars.length)]; return [p.pos[0] + (rng() - 0.5) * p.rad, p.pos[2] + (rng() - 0.5) * p.rad]; } });
+  const zipFar = (x, y, z) => !nearZip(x, z);
+  add('grass', 260, 1.4, 2.2, { ...tB, pick: east, ok: zipFar });
+  add('bush', 30, 2.0, 3.0, { ...tB, pick: east, ok: zipFar });
+  add('rock', 30, 1.6, 3.0, { ...tB, pick: east, ok: zipFar });
+  add('pine', 10, 3.2, 4.4, { ...tB, ok: zipFar, pick: (rng) => { const p = L.pillars[Math.floor(rng() * L.pillars.length)]; return [p.pos[0] + (rng() - 0.5) * p.rad, p.pos[2] + (rng() - 0.5) * p.rad]; } });
 
   // ——— 4. Затерянный лагерь: сухое плато ———
   const inD = (rng) => {
     const a = rng() * TAU, k = Math.sqrt(rng()), c = L.campD.center;
     return [c[0] + Math.cos(a) * 44 * k, c[2] + Math.sin(a) * 52 * k];
   };
-  const campFar = (x, z) => Math.hypot(x - L.campD.center[0], z - L.campD.center[2]) > 13;
+  const campFar = (x, y, z) => !nearZip(x, z) && Math.hypot(x - L.campD.center[0], z - L.campD.center[2]) > 13;
   const tD = { yTop: -108, yBot: -132, minNy: 0.78 };
   add('deadTree', 16, 3.6, 5.2, { ...tD, pick: inD, ok: campFar });
   add('grassDry', 280, 1.6, 2.6, { ...tD, pick: inD, ok: campFar });
@@ -82,7 +86,7 @@ export function scatterRules(W, L) {
 
   // ——— 5. Большой спуск и дно: светящиеся грибы, папоротники, кристаллы ———
   const deep = (rng) => { const a = rng() * TAU, r = Math.sqrt(rng()) * 175; return [Math.sin(a) * r, Math.cos(a) * r]; };
-  const lakeFar = (x, z) => Math.hypot((x - L.lake.x) / (L.lake.rx + 3), (z - L.lake.z) / (L.lake.rz + 3)) > 1;
+  const lakeFar = (x, y, z) => !nearZip(x, z) && Math.hypot((x - L.lake.x) / (L.lake.rx + 3), (z - L.lake.z) / (L.lake.rz + 3)) > 1;
   const tE = { yTop: -122, yBot: -212, minNy: 0.72 };
   add('mushGlow', 110, 3.0, 6.0, { ...tE, pick: deep, ok: lakeFar });
   add('fern', 200, 2.2, 3.6, { ...tE, pick: deep, ok: lakeFar });

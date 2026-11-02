@@ -69,19 +69,22 @@ export class Hud {
     this.cls('grabOn', this.btnGrab, 'on', climbing);
     this.set('grabLbl', this.grabLbl, 'textContent', climbing ? 'отпустить' : 'хват');
     // кнопка крюка: светится, когда есть кольцо; синяя, когда висим на верёвке или тросе
-    const onRope = player.state === 'rope' || player.state === 'zip' || !!player.hook || (player.state === 'mantle' && (player.mantle.then === 'rope' || player.mantle.then === 'zip'));
+    const onRope = !!player.rope || player.state === 'zip' || !!player.hook || (player.state === 'mantle' && (player.mantle.then === 'rope' || player.mantle.then === 'zip'));
     this.cls('ready', this.btnHook, 'ready', !onRope && !!player.target);
     this.cls('ropeOn', this.btnHook, 'on', onRope);
     this.set('hookLbl', this.hookLbl, 'textContent', onRope ? 'отпустить' : 'крюк');
-    // прицел на кольце
+    // прицел крюка: на цели (скала или кольцо) — яркий с расстоянием; цели нет — бледный, куда смотрит прицел
     const tgt = !onRope && player.target;
-    if (tgt) {
-      const v = this.v.copy(tgt.pos).project(camera);
+    const at = tgt ? tgt.pos : (!onRope && player.aimOn && player.aimPoint) || null;
+    if (at && game.running) {
+      const v = this.v.copy(at).project(camera);
       const vis = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
       this.cls('ret', this.reticle, 'on', vis);
+      this.cls('retFar', this.reticle, 'far', !tgt);
+      this.cls('retRing', this.reticle, 'ring', !!tgt && !tgt.free);
       if (vis) {
         this.reticle.style.transform = `translate(${((v.x + 1) / 2) * window.innerWidth}px, ${((1 - v.y) / 2) * window.innerHeight}px)`;
-        this.set('retD', this.retD, 'textContent', `${Math.round(tgt.pos.distanceTo(player.pos))} м`);
+        this.set('retD', this.retD, 'textContent', tgt ? (tgt.kind === 'zip' ? 'трос' : `${Math.round(tgt.pos.distanceTo(player.pos))} м`) : '');
       }
     } else this.cls('ret', this.reticle, 'on', false);
     if (this.toastTimer > 0) {

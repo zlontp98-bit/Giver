@@ -72,7 +72,8 @@ export class AnimMethods {
     }
     H.head.rotation.z = Math.sin(this.time * 1.3) * 0.04;
     // верёвка: от рук до кольца (крюк летит или зацеплен)
-    const hand = _c.copy(p).setY(p.y + (this.rope || this.zip ? HANG : 1.5));
+    const hang = this.state === 'rope' || this.state === 'zip' || (this.state === 'mantle' && this.mantle.then !== 'ground');
+    const hand = _c.copy(p).setY(p.y + (hang ? HANG : 1.1));
     let end = null;
     if (this.rope) end = this.rope.anchor.pos;
     else if (this.hook) end = _d.copy(hand).lerp(this.hook.anchor.pos, Math.min(1, this.hook.t / this.hook.dur));

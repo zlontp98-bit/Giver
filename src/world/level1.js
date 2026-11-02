@@ -172,6 +172,68 @@ export function buildLevel1(W) {
   // ——— точки для игры ———
   const lookout = { a: at(N, Rn + 7, 0.25), b: at(N, Rn - 8, 0.25), th: N };
   const spawn = [settle.x + 6, 0, settle.z + 8];
+
+  // ——— тросы через провалы и кольца для крюка (этап 2) ———
+  // концы тросов — на столбах высотой ~3 м: a — откуда едем (выше), b — куда (ниже); sag — провис посередине
+  const groundY = (x, z, yTop, drop = 60) => { const t = W.raycast(x, yTop, z, 0, -1, 0, drop); return t < 0 ? yTop - drop : yTop - t; };
+  const post = (x, z, yTop, h) => [x, groundY(x, z, yTop) + h, z];
+  const zips = [];
+  // край опоры по направлению (ux, uz) от точки: где земля обрывается вниз больше чем на 2.5 м
+  const edgeDist = (cx, cz, ux, uz, yTop, maxD = 40) => {
+    const y0 = groundY(cx, cz, yTop);
+    let d = 0;
+    for (let q = 0.5; q < maxD; q += 0.5) { if (groundY(cx + ux * q, cz + uz * q, yTop) < y0 - 2.5) return d; d = q; }
+    return d;
+  };
+  // трос от точки from (на опоре) к точке to: столбы ставим у краёв, высоту поднимаем, пока висящий герой
+  // не задевает скалу по пути (туловище — до 2.2 м под тросом)
+  const addZip = (name, from, to, yTopA, yTopB, extra = {}) => {
+    const dx = to[0] - from[0], dz = to[2] - from[2], d = Math.hypot(dx, dz), ux = dx / d, uz = dz / d;
+    const ea = edgeDist(from[0], from[2], ux, uz, yTopA), eb = edgeDist(to[0], to[2], -ux, -uz, yTopB);
+    // край не нашёлся (ровное место) — ставим столб прямо в точке
+    const ma = ea >= 39 ? 0 : Math.max(0, ea - 1.6), mb = eb >= 39 ? 0 : Math.max(0, eb - 2.2);
+    const ax = from[0] + ux * ma, az = from[2] + uz * ma, bx = to[0] - ux * mb, bz = to[2] - uz * mb;
+    const z = { name, a: post(ax, az, yTopA, 3.0), b: post(bx, bz, yTopB, 2.7), sag: extra.sag || 1.0, ...extra };
+    for (let k = 0; k < 12; k++) {
+      let bad = -1;
+      for (let i = 2; i < 59 && bad < 0; i++) {
+        const u = i / 60, x = z.a[0] + (z.b[0] - z.a[0]) * u, y = z.a[1] + (z.b[1] - z.a[1]) * u - z.sag * 4 * u * (1 - u), zz = z.a[2] + (z.b[2] - z.a[2]) * u;
+        for (const h of [0.3, 1.1, 2.2]) if (W.f(x, y - h, zz) < 0.3) { bad = u; break; }
+      }
+      if (bad < 0) break;
+      if (bad < 0.5) z.a[1] += 0.5; else z.b[1] += 0.5;
+    }
+    z.postA = z.a[1] - groundY(z.a[0], z.a[2], yTopA);
+    z.postB = z.b[1] - groundY(z.b[0], z.b[2], yTopB);
+    zips.push(z);
+  };
+  {
+    // со смотровой площадки на Лесную окраину (столб — прямо на настиле)
+    const b = lookout.b;
+    zips.push({ name: 'смотровая → терраса', a: [b[0] + 1.6, 0.35 + 2.9, b[2] - 1.4], b: post(28, -176, -10, 2.7), sag: 1.2, deck: true, postA: 2.9, postB: 2.7 });
+    // цепочка по столбам Каменных уступов: столб 4 → 1 → 2 → 3 → площадка шахты (обходной путь)
+    const chain = [pillars[3], pillars[0], pillars[1], pillars[2]];
+    for (let i = 0; i < chain.length; i++) {
+      const A = chain[i], last = i === chain.length - 1;
+      const to = last ? at(0.98, R(0.98, -93) - 3.2, -93) : chain[i + 1].pos;
+      addZip(last ? 'столб → шахта' : 'столб → столб', A.pos, to, A.top + 12, to[1] + 12);
+    }
+    // с Затерянного лагеря — длинный трос на дно
+    addZip('лагерь → дно', at(thD, Rd - 50, -120), at(0.3, 60, -204), -100, -190, { sag: 3 });
+  }
+  // кольца — особые точки: видно издалека, крюк достаёт дальше (40 м); стоят над хорошими спусками
+  const rings = [];
+  {
+    // на скале: идём от центра Бездны к стене на высоте y, пока не упрёмся — кольцо в 0.45 м от камня
+    const ringOn = (th, y) => {
+      for (let r = R(th, y) - 20; r < R(th, y) + 15; r += 0.25) { const p = at(th, r, y); if (W.f(p[0], p[1], p[2]) < 0.45) return p; }
+      return at(th, R(th, y), y);
+    };
+    rings.push({ name: 'конец полки к уступам', pos: ringOn(1.775, -45.5) });       // быстрый спуск мимо зигзага
+    rings.push({ name: 'край плато лагеря', pos: ringOn(-1.70, -117.5) });           // вниз на полки Большого спуска
+    rings.push({ name: 'над осыпью', pos: ringOn(-2.53, -166.5) });                  // с последней полки — к озеру
+  }
+
   const areas = [
     { id: 'village', name: 'Посёлок у края', test: (x, y, z) => y > -4 && Math.hypot(x, z) > Rn - 12 },
     { id: 'forest', name: 'Лесная окраина', test: (x, y, z) => y > -45 && z < -60 && Math.abs(x - aX) < 120 },
@@ -188,7 +250,7 @@ export function buildLevel1(W) {
     at(-2.2, R(-2.2, -142) - 4, -142), at(-2.6, R(-2.6, -180) - 5, -180), [lake.x - 30, -200, lake.z - 20], [lake.x, -200, lake.z + 26],
   ];
   return {
-    ledges: { path: pathLedge, ab: abLedge, b: bLedges, mineIn, mineOut, sw: swLedges, e: eLedges, scree },
+    ledges: { path: pathLedge, ab: abLedge, b: bLedges, mineIn, mineOut, sw: swLedges, e: eLedges, scree }, zips, rings,
     W, Rn, settle, spawn, lookout, river: W.river, rimFall, poolA, streamA, lake, gate, mine, hall, ramp, pillars, village, mineLamps,
     campD: { center: dc, th: thD }, secret: { th: thS, pos: at(thS, Rs + 9, -120) }, areas, bench,
     thW, aX, aZ, topA,

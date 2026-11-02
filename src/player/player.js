@@ -102,9 +102,29 @@ export class Player {
     const g = this.P.ground(p.x, p.y, p.z, 0.55, 0.7);
     if (!g || (g.ny < WALKABLE && !g.box)) { this.state = 'air'; this.onBox = null; }
     else { p.y = g.y; this.onBox = g.box; }
+    if (this.rope) this.ropePayOut();
+    // упёрлись в невысокий уступ (0.5–1.4 м) — перелезаем сами
+    if (this.state === 'ground' && amount > 0.5 && Math.hypot(this.vel.x, this.vel.z) < speed * 0.45) this.tryVault(0.5, 1.4, 0.32);
     if (input.grab) this.tryGrab();
     else if (input.hook) this.fireHook();
     else if (input.jump && this.state === 'ground') this.jump();
+  }
+
+  // перелезть на уступ впереди: верх опоры на lo…hi м выше ног, над ним есть место; dur — сколько лезем
+  tryVault(lo, hi, dur) {
+    const p = this.pos, fx = Math.sin(this.facing), fz = Math.cos(this.facing);
+    for (const d of [0.55, 0.85]) {
+      const x = p.x + fx * d, z = p.z + fz * d;
+      const top = this.P.ground(x, p.y + hi, z, 0, hi - lo);
+      if (!top || top.y < p.y + lo || (top.ny < WALKABLE && !top.box)) continue;
+      // впереди на уровне пояса — стена (во что упёрлись), над верхом — свободно для тела
+      if (this.P.f(p.x + fx * 0.45, p.y + Math.min(0.6, top.y - p.y - 0.2), p.z + fz * 0.45) > 0.6 && !top.box) continue;
+      if (this.P.f(x, top.y + 1.0, z) < 0.42 || this.P.f(x, top.y + 1.6, z) < 0.35) continue;
+      this.startMantle(_c.set(x + fx * 0.2, top.y, z + fz * 0.2), dur + 0.12 * (top.y - p.y), 'ground', 0.25);
+      this.onBox = top.box;
+      return true;
+    }
+    return false;
   }
 
   jump() {
@@ -131,6 +151,8 @@ export class Player {
     if (hs > cap) { this.vel.x *= cap / hs; this.vel.z *= cap / hs; }
     this.flingSpeed = Math.max(0, this.flingSpeed - dt * 4);
     p.addScaledVector(this.vel, dt);
+    // с верёвкой: натянулась — повисли
+    if (this.rope && this.ropeCatch()) { this.collide(); return; }
     // приземление: опора, которую пересекли за этот шаг (до того, как стены вытолкнут)
     if (this.vel.y <= 0) {
       const g = this.P.ground(p.x, p.y, p.z, Math.max(0.05, this.prevY - p.y + 0.05), 0.05);
@@ -138,6 +160,8 @@ export class Player {
     }
     this.collide();
     this.peakY = Math.max(this.peakY, p.y);
+    // в прыжке дотянулись до края уступа (верх на 0.6–2.1 м выше ног) и тянемся к нему — хватаемся и влезаем
+    if (amount > 0.3 && this.vel.y < 3 && this.tryVault(0.6, 2.1, 0.5)) { this.spend(COST.grab * 0.4); return; }
     if (input.grab) { this.tryGrab(); if (this.state !== 'air') return; }
     if (input.hook) this.fireHook();
   }

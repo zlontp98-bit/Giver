@@ -101,12 +101,14 @@ export class Physics {
     return best;
   }
 
-  // луч до скалы (для крюка): { t, point, normal } или null
-  raycast(o, d, maxT) {
-    const t = this.W.raycast(o.x, o.y, o.z, d.x, d.y, d.z, maxT);
+  // луч до скалы (для крюка): { t, point, normal } или null. radius — «толстый» луч: точка — на скале под ним
+  raycast(o, d, maxT, radius = 0) {
+    const t = this.W.raycast(o.x, o.y, o.z, d.x, d.y, d.z, maxT, 0.05, Math.max(0.04, radius));
     if (t < 0) return null;
     const point = new THREE.Vector3(o.x + d.x * t, o.y + d.y * t, o.z + d.z * t);
-    return { t, point, normal: this.W.normal(point.x, point.y, point.z, new THREE.Vector3()) };
+    const normal = this.W.normal(point.x, point.y, point.z, new THREE.Vector3());
+    if (radius > 0) point.addScaledVector(normal, -this.W.f(point.x, point.y, point.z));
+    return { t, point, normal };
   }
 
   clearLine(a, b, skipEnd = 0.6) {

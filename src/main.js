@@ -52,6 +52,10 @@ const game = {
   running: false, paused: false, won: false, elapsed: 0, shards: 0, shardsTotal: 0, area: 'village',
   checkpoint: start.clone(), campName: 'посёлок',
 };
+// подсказка каждого вида — только один раз за игру
+const seenHints = new Set();
+function once(key, text) { if (!seenHints.has(key)) { seenHints.add(key); hud.message(text, 5, true); } }
+
 const events = {
   message: (t) => hud.message(t),
   hint: (t) => hud.message(t, 5, true),
@@ -62,6 +66,12 @@ const events = {
   },
   berries: () => hud.message('Ягоды! Силы полные'),
   caught: () => hud.message('Успел схватиться!'),
+  hooked: (state, a) => {
+    if (a.kind === 'ring') once('ring', 'Кольцо! Прыгни или шагни с края — раскачаешься. «Прыжок» — соскочить с разгона');
+    else if (state === 'rope') once('ropeAir', 'Висишь на верёвке: вниз — спуск, вверх — подтянуться, вбок — раскачка, «Прыжок» — соскочить');
+    else once('ropeBelay', 'Крюк держит — это страховка. Шагни с края: верёвка поймает. Джойстик вниз — спуск');
+  },
+  rappelled: () => once('rappel', 'Спустился! Крюк сам отцепился'),
   camp: (c) => {
     game.checkpoint.copy(c.pos);
     game.campName = c.name;
@@ -95,6 +105,7 @@ loadModels().then((models) => {
   physics = new Physics(W, props.colliders);
   water = new Water(scene, L, W);
   player = new Player(scene, physics, props, events);
+  player.anchors = props.anchors;
   player.hints = makeHints();
   player.spawn(start);
   player.facing = Math.PI;                                  // лицом к Бездне (на юг)

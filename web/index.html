@@ -73,6 +73,10 @@
   /* прицел крюка */
   #reticle { position: absolute; left: 0; top: 0; width: 54px; height: 54px; margin: -27px 0 0 -27px; display: none; color: var(--ember-hi); }
   #reticle.on { display: block; }
+  #reticle.far { opacity: .45; color: var(--cream); }
+  #reticle.far .ring { animation: none; border-style: solid; border-width: 2px; inset: 12px; }
+  #reticle.far b { display: none; }
+  #reticle.ring { color: #8fe3ff; }
   #reticle .ring { position: absolute; inset: 0; border: 3px solid currentColor; border-radius: 50%; animation: spin 2.4s linear infinite; border-style: dashed; }
   #reticle .dot { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px; border-radius: 50%; background: currentColor; }
   #reticle b { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 3px; padding: 1px 7px; border-radius: 999px; background: var(--glass-strong); color: var(--cream); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -233,7 +237,7 @@
       <div><span class="ic"><svg class="ico"><use href="#i-stick" /></svg></span><span>Левая половина экрана — идти, правая — повернуть камеру.</span></div>
       <div><span class="ic"><svg class="ico"><use href="#i-hand" /></svg></span><span>У любой крутой скалы жми <b>Хват</b> — повиснешь на руках. Джойстик — лезть вверх, вниз и вбок. На краю обрыва «Хват» — спуститься под край.</span></div>
       <div><span class="ic"><svg class="ico"><use href="#i-jump" /></svg></span><span>Силы тают на стене (под нависанием — быстрее): отдыхай на уступах. В падении можно поймать стену. Выше 6 м падать больно.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-hook" /></svg></span><span><b>Крюк</b>, верёвки и тросы — в следующей сборке.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-hook" /></svg></span><span><b>Крюк</b>: наведи прицел на скалу (до 24 м) или на кольцо. Стоя — страховка: шагни с края, верёвка поймает. На верёвке: вниз — спуск, вбок — раскачка, «Прыжок» — соскочить. У троса — «Крюк», и поехали.</span></div>
       <div><span class="ic"><svg class="ico"><use href="#i-gem" /></svg></span><span>Найди путь на дно первого яруса: лес, уступы, шахта, затерянный лагерь, большой спуск. Палатки — точки сохранения, ягоды — силы.</span></div>
     </div>
   </div>

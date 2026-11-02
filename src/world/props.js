@@ -117,6 +117,66 @@ export class Props {
     this.campLost();
     this.mine();
     this.gate();
+    this.anchors = [];              // за что цепляется крюк, кроме скал: кольца и начала тросов
+    this.zipLines();
+    this.rings();
+  }
+
+  // ——— тросы через провалы: два столба, провисший трос; крюк у начала — и поехали ———
+  zipLines() {
+    const parts = [], wood = '#7a5232', iron = '#3c4149';
+    const cablePts = [];
+    for (const Z of this.L.zips) {
+      const a = new THREE.Vector3(...Z.a), b = new THREE.Vector3(...Z.b);
+      // столбы с перекладиной (на смотровой — короче: стоит на настиле)
+      for (const [p, h] of [[a, Z.postA], [b, Z.postB]]) {
+        const pole = new THREE.CylinderGeometry(0.16, 0.2, h + 0.4, 6);
+        pole.translate(0, (h + 0.4) / 2 - 0.3, 0);
+        parts.push({ geo: pole, m: new THREE.Matrix4().makeTranslation(p.x, p.y - h, p.z), color: wood });
+        const bar = new THREE.BoxGeometry(1.2, 0.16, 0.16);
+        parts.push({ geo: bar, m: new THREE.Matrix4().makeRotationY(Math.atan2(b.x - a.x, b.z - a.z) + Math.PI / 2).setPosition(p.x, p.y + 0.05, p.z), color: wood });
+        this.colliders.push({ cyl: true, x: p.x, z: p.z, y0: p.y - h - 0.3, y1: p.y + 0.2, r: 0.22 });
+      }
+      // трос: ломаная по провисающей кривой
+      const pts = [];
+      for (let i = 0; i <= 24; i++) {
+        const u = i / 24;
+        pts.push(new THREE.Vector3().lerpVectors(a, b, u).setY(a.y + (b.y - a.y) * u - Z.sag * 4 * u * (1 - u)));
+      }
+      cablePts.push(pts);
+      const dir = new THREE.Vector3().subVectors(b, a), len = dir.length();
+      dir.multiplyScalar(1 / len);
+      this.anchors.push({ kind: 'zip', name: Z.name, pos: a.clone(), zip: { a, b, dir, len, sag: Z.sag } });
+    }
+    for (const pts of cablePts) {
+      const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.04, 5, false);
+      parts.push({ geo: tube, m: new THREE.Matrix4(), color: iron });
+    }
+    if (parts.length) this.solid(parts);
+  }
+
+  // ——— кольца — особые точки для крюка: железное кольцо на скале и огонёк рядом (видно издалека) ———
+  rings() {
+    const parts = [], glowPos = [], n = new THREE.Vector3();
+    for (const Rg of this.L.rings) {
+      const p = new THREE.Vector3(...Rg.pos);
+      this.W.normal(p.x, p.y, p.z, n);
+      const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+      const ring = new THREE.TorusGeometry(0.34, 0.07, 8, 18);
+      ring.rotateX(Math.PI / 2);                              // кольцо висит вниз от скобы
+      ring.translate(0, -0.3, 0.12);
+      parts.push({ geo: ring, m: new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), color: '#4a5058' });
+      const plate = new THREE.BoxGeometry(0.42, 0.42, 0.14);
+      parts.push({ geo: plate, m: new THREE.Matrix4().compose(p.clone().addScaledVector(n, -0.12), q, new THREE.Vector3(1, 1, 1)), color: '#2e3238' });
+      glowPos.push(p.clone().addScaledVector(n, 0.25).setY(p.y + 0.45));
+      this.anchors.push({ kind: 'ring', name: Rg.name, pos: p.clone().setY(p.y - 0.3).addScaledVector(n, 0.12) });
+    }
+    if (!parts.length) return;
+    this.solid(parts);
+    const glow = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshBasicMaterial({ color: '#8ff0ff' }), glowPos.length);
+    glowPos.forEach((g, i) => glow.setMatrixAt(i, new THREE.Matrix4().makeTranslation(g.x, g.y, g.z)));
+    this.scene.add(glow);
+    this.ringGlow = glow;
   }
 
   // высота земли под точкой (по формуле мира)

@@ -24,8 +24,8 @@ android {
         applicationId giverTest ? "com.giver.game.test" : "com.giver.game"
         minSdk 26
         targetSdk 34
-        versionCode 6
-        versionName "0.5-a1"
+        versionCode 7
+        versionName "0.5-a2"
         manifestPlaceholders = [
             appLabel: giverTest ? "@string/app_name_test" : "@string/app_name",
             appIcon : giverTest ? "@mipmap/ic_launcher_test" : "@mipmap/ic_launcher"
