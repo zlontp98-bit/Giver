@@ -1,196 +1,203 @@
-// Бот (запуск после npm run build: node tools/bot.cjs) проходит маршрут descent.route шагами физики (без рисования).
+// Бот проходит первый ярус шагами физики (без рисования): node tools/bot.cjs (после npm run build).
+// Маршрут: посёлок → смотровая площадка → тропа на террасу → лагерь у водопада → полки «Каменных уступов»
+// (спуск по стене между ними) → шахта и зал → траверс по стене → Затерянный лагерь → «Большой спуск» → дно.
+// Проверяет, что путь проходим, герой не погибает и где теряет здоровье. Итог — в консоль.
 const { chromium } = require('playwright');
+const path = require('path');
 (async () => {
   const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 640, height: 360 }, deviceScaleFactor: 1 });
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-  await page.addInitScript(() => { window.__noAdapt = true; });
-  await page.goto('file://' + require('path').resolve(__dirname, '../dist/giver.html'));
-  await page.waitForFunction(() => window.__giver, null, { timeout: 60000 });
+  await page.addInitScript((dbg) => { window.__noAdapt = true; window.__botDebug = dbg; }, !!process.env.BOTDEBUG);
+  await page.goto('file://' + path.resolve(__dirname, '../dist/giver.html'));
+  await page.waitForFunction(() => window.__giver && window.__giver.player, null, { timeout: 90000 });
   await page.click('#go');
   await page.waitForTimeout(300);
-  const res = await page.evaluate(async () => {
-    const g = window.__giver, P = g.player, D = g.descent, A = g.abyss, cam = g.cam;
+  const only = process.argv[2] || '';
+  const res = await page.evaluate(async (only) => {
+    const g = window.__giver, P = g.player, L = g.L, W = g.W, cam = g.cam, V = P.pos.constructor;
     g.game.running = false;            // кадры не двигают героя — только бот
     const log = [];
-    let t = 0, deaths = 0, hurtTotal = 0;
+    let t = 0, hurtTotal = 0, climbs = 0, minStamina = 100;
     const origHurt = P.hurt.bind(P);
-    P.hurt = (d, w) => { hurtTotal += Math.min(d, 1000); log.push(`hurt ${d} ${w || ''} at y=${P.pos.y.toFixed(1)} t=${t.toFixed(1)} state=${P.state}`); origHurt(d, w); };
-    const blank = () => ({ mx: 0, my: 0, run: false, jump: false, hook: false, grab: false, camDX: 0, camDY: 0, looking: false });
-    const step = (inp) => { g.step(inp); t += 1 / 60; if (P.dead) throw new Error('dead'); };
+    P.hurt = (d, w) => { hurtTotal += Math.min(d, 1000); log.push(`  ушибся: ${d.toFixed(0)} ${w || ''} y=${P.pos.y.toFixed(1)}`); origHurt(d, w); };
+    const blank = () => ({ mx: 0, my: 0, run: false, jump: false, hook: false, grab: false, act: false, camDX: 0, camDY: 0, looking: false });
+    let lastGround = null, target = null;
+    const step = (inp) => {
+      if (P.state === 'ground') lastGround = P.pos.clone();
+      g.step(inp); t += 1 / 60; minStamina = Math.min(minStamina, P.stamina);
+      if (P.dead) throw new Error(`погиб: сорвался с ${lastGround ? fmt(lastGround) : '?'} по пути к ${target ? fmt(target) : '?'}`);
+    };
     const hd = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
-    // идти к точке: камеру поворачиваем так, чтобы «вперёд» смотрело на цель
-    const steerTo = (to, run) => { const dx = to.x - P.pos.x, dz = to.z - P.pos.z; cam.yaw = Math.atan2(-dx, -dz); const i = blank(); i.my = 1; i.run = !!run; return i; };
-    async function walkTo(to, tol = 0.45, maxT = 40) {
-      const t0 = t;
+    const R = (th, y) => W.pitR(Math.cos(th), Math.sin(th), y);
+    const angD = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+    const thOf = (p) => Math.atan2(p.x, p.z);
+    const fmt = (p) => `${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}`;
+    const v = (a) => new V(a[0], a[1], a[2]);
+    const ss = (e0, e1, x) => { const k = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return k * k * (3 - 2 * k); };
+    // точка на полке: доля u по длине, ближе к стене (там шире всего и не свалиться)
+    const lp = (l, u) => {
+      const th = l.th0 + l.span * u, y = l.y0 + (l.y1 - l.y0) * u;
+      const taper = 0.35 + 0.65 * ss(0, 0.12, u) * ss(1, 0.88, u);
+      const r = R(th, y) - Math.min(2.2, Math.max(0.9, l.depth * taper * 0.45));
+      return new V(Math.sin(th) * r, y, Math.cos(th) * r);
+    };
+    const steer = (to, run) => { const dx = to.x - P.pos.x, dz = to.z - P.pos.z; cam.yaw = Math.atan2(-dx, -dz); const i = blank(); i.my = 1; i.run = !!run; return i; };
+    // идти к точке; застрял — шаг вбок; упал ниже, чем ждали, — ошибка
+    async function walkTo(to, { tol = 0.7, maxT = 60, run = false, maxDrop = 6.5 } = {}) {
+      const t0 = t, y0 = Math.min(P.pos.y, to.y);
+      target = to;
+      let lastD = 1e9, lastT = t, side = 1, stuck = 0;
       while (hd(P.pos, to) > tol) {
-        if (g.game.won) return;             // уже у кристалла на дне
-        if (t - t0 > maxT) throw new Error(`walk timeout to ${to.x.toFixed(1)},${to.y.toFixed(1)},${to.z.toFixed(1)} at ${P.pos.x.toFixed(1)},${P.pos.y.toFixed(1)},${P.pos.z.toFixed(1)} st=${P.state}`);
-        const i = P.state === 'ground' && hd(P.pos, to) < 1.2 ? (() => { const s = steerTo(to); s.my = 0.5; return s; })() : steerTo(to);
+        if (t - t0 > maxT) throw new Error(`не дошёл до ${fmt(to)}, стою ${fmt(P.pos)} (${P.state})`);
+        const d = hd(P.pos, to);
+        if (d < lastD - 0.3) { lastD = d; lastT = t; }
+        if (t - lastT > 2.5) {                           // застрял: полсекунды вбок
+          if (++stuck >= 3 && d < 2.6) break;            // рядом с целью (мешает дерево или камень) — хватит
+          if (stuck === 1) { const i = steer(to); i.jump = true; step(i); while (P.state === 'air') step(steer(to)); }   // ступенька — прыжок
+          for (let k = 0; k < 30; k++) { const i = steer(to); i.my = 0.3; i.mx = side; step(i); }
+          side = -side; lastT = t; lastD = 1e9;
+        }
+        const i = steer(to, run && d > 4);
+        if (d < 1.5) i.my = 0.55;
         step(i);
-        if (P.state === 'air') { while (P.state === 'air') { step(steerTo(to)); if (t - t0 > maxT) throw new Error('fell during walk'); } }
+        if (P.state === 'air') {
+          while (P.state === 'air') step(steer(to));
+          if (P.pos.y < y0 - maxDrop) throw new Error(`упал при ходьбе к ${fmt(to)}: теперь ${fmt(P.pos)}`);
+        }
+        if (P.state === 'climb') { const i2 = blank(); i2.grab = true; step(i2); while (P.state === 'air') step(blank()); }
       }
-      // остановиться
       for (let k = 0; k < 6; k++) step(blank());
+      if (window.__botDebug) log.push(`    дошёл к ${fmt(to)}: ${fmt(P.pos)} θ=${thOf(P.pos).toFixed(3)}`);
     }
-    function aimAt(a) {
-      const chest = P.pos.clone(); chest.y += 1.3;
-      const d = a.pos.clone().sub(chest).normalize();
-      return P.pickTarget(d);
+    async function walkPts(pts, o) { for (const p of pts) await walkTo(p, o); }
+    async function ledgeWalk(l, u0, u1) {
+      const n = Math.max(2, Math.ceil(Math.abs(u1 - u0) * l.span / 0.028));
+      for (let k = 1; k <= n; k++) await walkTo(lp(l, u0 + ((u1 - u0) * k) / n), { tol: 0.9 });
     }
-    async function doRappel(s) {
-      const tg = aimAt(s.anchor);
-      if (tg !== s.anchor) throw new Error('rappel: anchor not targeted, got ' + (tg ? tg.kind : 'null') + ' dist ' + s.anchor.pos.distanceTo(P.pos).toFixed(1));
-      const i = blank(); i.hook = true; step(i);
-      const t0 = t;
-      while (P.state !== 'rope') { step(blank()); if (t - t0 > 3) throw new Error('rappel: never on rope, state ' + P.state); }
-      while (P.state === 'rope' || P.state === 'mantle') {
-        const i2 = blank(); i2.my = -1; step(i2);
-        if (t - t0 > 40) throw new Error('rappel timeout y=' + P.pos.y.toFixed(1));
+    // спуск по стене: лицом к стене схватиться, вбок до угла th, потом вниз до опоры
+    async function climbDown(th, expectY, name) {
+      const t0 = t, st0 = P.stamina;
+      // подойти вплотную к стене (лицом к ней)
+      const out = new V(Math.sin(thOf(P.pos)), 0, Math.cos(thOf(P.pos)));
+      cam.yaw = Math.atan2(-out.x, -out.z);
+      let lastR = Math.hypot(P.pos.x, P.pos.z);
+      for (let k = 0; k < 90; k++) {
+        const i = blank(); i.my = 0.5; step(i);
+        const r = Math.hypot(P.pos.x, P.pos.z);
+        if (k > 10 && r < lastR + 0.002) break;
+        lastR = r;
       }
-      // упали? ждём приземления
-      while (P.state === 'air') step(blank());
-      log.push(`rappel landed y=${P.pos.y.toFixed(1)} target y=${s.to.y.toFixed(1)} state=${P.state}`);
-    }
-    async function doZip(s) {
-      const tg = aimAt(s.anchor);
-      if (tg !== s.anchor) throw new Error('zip: anchor not targeted, dist ' + s.anchor.pos.distanceTo(P.pos).toFixed(1));
-      const i = blank(); i.hook = true; step(i);
-      const t0 = t;
-      while (P.state !== 'zip') { step(blank()); if (t - t0 > 3) throw new Error('zip: never on zip ' + P.state); }
-      while (P.state === 'zip') { step(blank()); if (t - t0 > 30) throw new Error('zip timeout'); }
-      while (P.state === 'air') step(blank());
-      log.push(`zip landed y=${P.pos.y.toFixed(1)} target y=${s.to.y.toFixed(1)} t=${(t - t0).toFixed(1)}s`);
-    }
-    async function doClimb(s) {
-      const i = blank(); i.grab = true;
-      cam.yaw = Math.atan2(P.pos.x, P.pos.z) + Math.PI;
-      step(i);
-      const t0 = t;
+      const i = blank(); i.grab = true; step(i);
       while (P.state === 'mantle') step(blank());
-      if (P.state !== 'climb') throw new Error('climb: grab failed, state ' + P.state + ' gap ' + A.wallGap(P.pos).toFixed(2));
-      const st0 = P.stamina;
-      // вбок до нужного угла
+      if (P.state !== 'climb') throw new Error(`${name}: не схватился (${P.state}) у ${fmt(P.pos)}`);
+      climbs++;
+      // камера смотрит на стену: «вправо» (mx > 0) — угол θ уменьшается
+      let dir = angD(th, thOf(P.pos)) > 0 ? -1 : 1, best = 1e9, bestT = t, descending = false;
       while (P.state === 'climb') {
-        const th = P.climb.th;
-        cam.yaw = th + Math.PI;
-        const d = Math.atan2(Math.sin(s.theta - th), Math.cos(s.theta - th));
+        const n = P.climb.n;
+        cam.yaw = Math.atan2(n.x, n.z);
+        const d = angD(th, thOf(P.pos));
         const i2 = blank();
-        if (Math.abs(d) > 0.004) { i2.mx = d > 0 ? -1 : 1; }   // камера смотрит на стену: «вправо» = угол уменьшается
-        else i2.my = -1;
+        if (Math.abs(d) > (descending ? 0.03 : 0.004)) {
+          if (Math.abs(d) < best - 0.002) { best = Math.abs(d); bestT = t; }
+          if (t - bestT > 0.8) { dir = -dir; bestT = t; best = 1e9; }   // не туда — в другую сторону
+          i2.mx = dir;
+        } else { i2.my = -1; descending = true; }
         step(i2);
-        if (t - t0 > 30) throw new Error('climb timeout th=' + th.toFixed(3) + ' want ' + s.theta.toFixed(3) + ' y=' + P.pos.y.toFixed(1));
+        if (window.__botDebug && Math.round(t * 60) % 6 === 0) log.push(`    ${P.state} θ=${thOf(P.pos).toFixed(3)} y=${P.pos.y.toFixed(2)} n=${P.climb ? P.climb.n.toArray().map((q) => q.toFixed(2)) : '-'} mx=${i2.mx} my=${i2.my}`);
+        if (t - t0 > 40) throw new Error(`${name}: долго лезу, θ=${thOf(P.pos).toFixed(3)} нужно ${th.toFixed(3)} y=${P.pos.y.toFixed(1)}`);
       }
       while (P.state === 'air' || P.state === 'mantle') step(blank());
-      log.push(`climb landed y=${P.pos.y.toFixed(1)} target ${s.to.y.toFixed(1)} stamina ${st0.toFixed(0)}→${P.stamina.toFixed(0)} in ${(t - t0).toFixed(1)}s`);
+      log.push(`  ${name}: слез на y=${P.pos.y.toFixed(1)} (ждали ${expectY}), силы ${st0.toFixed(0)}→${P.stamina.toFixed(0)}, ${(t - t0).toFixed(1)} с`);
+      if (Math.abs(P.pos.y - expectY) > 2.5) throw new Error(`${name}: оказался не там: y=${P.pos.y.toFixed(1)}`);
+      // отдохнуть, если сил мало
+      while (P.stamina < 70) step(blank());
     }
-    // прыжки по камням/доскам
-    async function doJumps(s) {
-      const plats = s.plats;
-      for (let k = 0; k < plats.length; k++) {
-        const b = plats[k];
-        const top = () => new THREE_V(b.c.x, b.c.y + b.hy, b.c.z);
-        const t0 = t;
-        // на земле: разбег к цели, прыжок, когда пора
-        let jumped = false;
-        while (true) {
-          const c = top();
-          if (P.state === 'ground' && P.onBox === b) break;
-          if (t - t0 > 15) throw new Error(`jump ${k} timeout at ${P.pos.toArray().map((v) => v.toFixed(1))} plat ${c.toArray().map((v) => v.toFixed(1))} st=${P.state}`);
-          if (P.state === 'ground') {
-            const d = hd(P.pos, c), dy = P.pos.y - c.y;
-            const i = steerTo(c, d > 2.2);
-            if (d < 0.6) { i.my = 0; }
-            // прыгать, если цель дальше 1.6 м и мы у края опоры (или далеко и опора кончается)
-            const ahead = P.pos.clone(); const dir = c.clone().sub(P.pos).setY(0).normalize(); ahead.addScaledVector(dir, 0.55);
-            const sup = P.supportAt(ahead, 0.45);
-            const edge = !sup || sup.y < P.pos.y - 0.6;
-            if (edge && d > 1.4 && !jumped) { i.jump = true; jumped = true; }
-            step(i);
-          } else if (P.state === 'air') {
-            // в воздухе: рулим так, чтобы долететь к центру
-            const vy = P.vel.y, h = Math.max(0.05, P.pos.y - c.y);
-            const tl = (vy + Math.sqrt(Math.max(0, vy * vy + 2 * 22 * h))) / 22;
-            const want = c.clone().sub(P.pos).setY(0).multiplyScalar(1 / Math.max(0.12, tl));
-            const dv = want.sub(new THREE_V(P.vel.x, 0, P.vel.z));
-            const i = blank();
-            if (dv.length() > 0.2) { cam.yaw = Math.atan2(-dv.x, -dv.z); i.my = Math.min(1, dv.length() / 2); }
-            step(i);
-          } else step(blank());
-          if (P.state === 'ground' && P.onBox !== b && jumped) {
-            // приземлились не туда
-            log.push(`jump ${k}: landed elsewhere y=${P.pos.y.toFixed(1)} plat y=${c.y.toFixed(1)}`);
-            jumped = false;
-            if (P.pos.y < c.y - 0.5) throw new Error('fell below platform ' + k);
-          }
-        }
-        for (let q = 0; q < 10; q++) step(blank());
-      }
-      // с последнего — на полку
-      await jumpTo(s.to);
-    }
-    async function jumpTo(to) {
-      const t0 = t; let jumped = false;
-      while (!(P.state === 'ground' && Math.abs(P.pos.y - to.y) < 0.3 && hd(P.pos, to) < 3.5)) {
-        if (t - t0 > 15) throw new Error('jumpTo timeout ' + P.pos.toArray().map((v) => v.toFixed(1)) + ' st ' + P.state + ' to ' + to.toArray().map((v) => v.toFixed(1)));
-        if (P.state === 'ground') {
-          const i = steerTo(to, true);
-          const ahead = P.pos.clone(); const dir = to.clone().sub(P.pos).setY(0).normalize(); ahead.addScaledVector(dir, 0.55);
-          const sup = P.supportAt(ahead, 0.45);
-          if ((!sup || sup.y < P.pos.y - 0.6) && !jumped && hd(P.pos, to) > 2) { i.jump = true; jumped = true; }
-          step(i);
-        } else if (P.state === 'air') {
-          const vy = P.vel.y, h = Math.max(0.05, P.pos.y - to.y);
-          const tl = (vy + Math.sqrt(Math.max(0, vy * vy + 2 * 22 * h))) / 22;
-          const want = to.clone().sub(P.pos).setY(0).multiplyScalar(1 / Math.max(0.12, tl));
-          const dv = want.sub(new THREE_V(P.vel.x, 0, P.vel.z));
-          const i = blank();
-          if (dv.length() > 0.2) { cam.yaw = Math.atan2(-dv.x, -dv.z); i.my = Math.min(1, dv.length() / 2); }
-          step(i);
-        } else step(blank());
-      }
-    }
-    async function doDrop(s) {
-      // шагнуть с края к грибу
-      const c = s.pad.c.clone(); c.y += s.pad.hy;
-      const t0 = t;
-      while (!(P.state === 'ground' && P.onBox === s.pad)) {
-        if (t - t0 > 15) throw new Error('drop timeout ' + P.state + ' y=' + P.pos.y.toFixed(1));
-        if (P.state === 'ground' && P.pos.y > c.y + 2) { const i = steerTo(c); i.my = 0.6; step(i); }
-        else if (P.state === 'air') {
-          const vy = P.vel.y, h = Math.max(0.05, P.pos.y - c.y);
-          const tl = (vy + Math.sqrt(Math.max(0, vy * vy + 2 * 22 * h))) / 22;
-          const want = c.clone().sub(P.pos).setY(0).multiplyScalar(1 / Math.max(0.12, tl));
-          const dv = want.sub(new THREE_V(P.vel.x, 0, P.vel.z));
-          const i = blank();
-          if (dv.length() > 0.2) { cam.yaw = Math.atan2(-dv.x, -dv.z); i.my = Math.min(1, dv.length() / 2); }
-          step(i);
-        } else if (P.state === 'ground') { log.push('drop: landed not on pad y=' + P.pos.y.toFixed(1)); break; }
-        else step(blank());
-      }
-      for (let q = 0; q < 90; q++) step(blank());     // пружинит
-      log.push(`drop done y=${P.pos.y.toFixed(1)} state=${P.state}`);
-    }
-    const THREE_V = P.pos.constructor;
-    let idx = 0;
+    const Lg = L.ledges, N = Math.PI, Rn = L.Rn;
+    const at = (th, r, y) => new V(Math.sin(th) * r, y, Math.cos(th) * r);
+    const camp = (name) => { const c = g.props.camps.find((c) => c.name === name); return c ? c.pos.clone() : null; };
+    const stages = [
+      ['посёлок → смотровая', async () => {
+        await walkPts([v([L.settle.x, 0, L.settle.z + 16]), v([0, 0, L.settle.z + 40]), v([0, 0, -(Rn + 9)])]);
+        await walkPts([v(L.lookout.b).add(new V(0, 0, -1.5)), v([0, 0, -(Rn + 9)])]);
+        if (P.pos.y < -1) throw new Error('упал со смотровой');
+      }],
+      ['тропа на террасу', async () => {
+        await walkTo(at(N - 0.06, R(N - 0.06, 0) + 2.5, 0));
+        await walkTo(lp(Lg.path, 0.12), { maxDrop: 8 });
+        await ledgeWalk(Lg.path, 0.12, 0.96);
+        await walkTo(camp('лагерь у водопада') || v([L.poolA.x - 14, -24, L.poolA.z]), { tol: 1.5 });
+      }],
+      ['терраса → полка к уступам', async () => {
+        // вдоль северной стены террасы к её восточному углу, оттуда узкий проход на полку
+        await walkPts([v([70, -24, -186]), v([95, -27, -173]), v([106, -28, -162]), v([116, -29, -157])], { tol: 1.2 });
+        await ledgeWalk(Lg.ab, 0.9, 0.04);
+      }],
+      ['Каменные уступы', async () => {
+        const [b1, b2, b3] = Lg.b;
+        await climbDown(b1.th0 + b1.span - 0.07, b1.y1 - 0.8, 'стена → полка 1');
+        await ledgeWalk(b1, 0.88, 0.04);
+        await climbDown(b2.th0 + 0.075, -69.5, 'стена → полка 2');
+        await ledgeWalk(b2, 0.15, 0.96);
+        await climbDown(b2.th0 + b2.span + 0.026, -76.6, 'стена → полка 3');
+        await ledgeWalk(b3, 0.9, 0.04);
+        await climbDown(Lg.b[2].th0 - 0.025, -92.4, 'стена → площадка шахты');
+      }],
+      ['Заброшенная шахта', async () => {
+        const uOf = (l) => Math.min(0.96, Math.max(0.04, angD(thOf(P.pos), l.th0) / l.span));
+        await ledgeWalk(Lg.mineIn, uOf(Lg.mineIn), 0.3);
+        await walkPts([...L.mine.map(v), new V(L.hall.pos[0], L.hall.floor, L.hall.pos[2]), ...L.ramp.map(v), lp(Lg.mineOut, 0.4)], { tol: 1.2 });
+        await walkTo(lp(Lg.mineOut, 0.05), { tol: 0.9 });
+      }],
+      ['траверс → Затерянный лагерь', async () => {
+        await climbDown(Lg.sw[0].th0 + Lg.sw[0].span - 0.015, -122.3, 'траверс к полке');
+        await ledgeWalk(Lg.sw[0], 0.95, 0.04);
+        await ledgeWalk(Lg.sw[1], 0.96, 0.04);
+        await ledgeWalk(Lg.sw[2], 0.96, 0.03);
+        await walkTo(camp('Затерянный лагерь') || v(L.campD.center), { tol: 1.5 });
+      }],
+      ['Большой спуск', async () => {
+        const [e1, e2, e3, e4] = Lg.e;
+        await walkTo(at(-1.69, R(-1.69, -120) - 4, -120), { tol: 1.2 });
+        await walkTo(lp(e1, 0.9), { maxDrop: 8 });
+        await ledgeWalk(e1, 0.9, 0.04);
+        await climbDown(e1.th0 - 0.022, -141.5, 'стена → полка E2');
+        await ledgeWalk(e2, 0.66, 0.96);
+        await climbDown(e2.th0 + e2.span + 0.024, -153.3, 'стена → полка E3');
+        await ledgeWalk(e3, 0.92, 0.04);
+        await climbDown(e3.th0 - 0.022, -167.4, 'стена → полка E4');
+        await ledgeWalk(e4, 0.66, 0.03);
+        await ledgeWalk(Lg.scree, 0.95, 0.03);
+      }],
+      ['дно: озеро и решётка', async () => {
+        await walkTo(new V(L.lake.x - L.lake.rx - 4, -204, L.lake.z), { tol: 2, maxT: 90 });
+        const gi = v(L.gate.inner);
+        await walkTo(gi, { tol: 2.5, maxT: 90 });
+      }],
+    ];
+    // начать с середины: node tools/bot.cjs <номер этапа> (герой переносится на начало этапа)
+    const starts = { 4: () => lp(Lg.ab, 0.04), 5: () => lp(Lg.mineIn, 0.85), 6: () => lp(Lg.mineOut, 0.05), 7: () => v(L.campD.center).add(new V(0, 2, 0)), 8: () => lp(Lg.scree, 0.05) };
+    let from = 1;
+    if (only && starts[+only]) { from = +only; P.spawn(starts[from]()); for (let k = 0; k < 10; k++) step(blank()); log.push(`(начинаю с этапа ${from} у ${fmt(P.pos)})`); }
+    let done = from - 1, cur = '';
     try {
-      for (const s of D.route) {
-        if (s.type === 'walk') await walkTo(s.to);
-        else if (s.type === 'climb') await doClimb(s);
-        else if (s.type === 'rappel') await doRappel(s);
-        else if (s.type === 'zip') await doZip(s);
-        else if (s.type === 'jumps') await doJumps(s);
-        else if (s.type === 'drop') await doDrop(s);
-        idx++;
-        if (P.dead) throw new Error('dead');
-        if (g.game.won) break;              // дошли до кристалла на дне — дальше идти некуда
+      for (const [name, fn] of stages.slice(from - 1)) {
+        cur = name;
+        const t0 = t, h0 = hurtTotal;
+        await fn();
+        done++;
+        const area = L.areas.find((a) => a.test(P.pos.x, P.pos.y, P.pos.z));
+        log.push(`✓ ${name}: ${(t - t0).toFixed(0)} с, y=${P.pos.y.toFixed(1)}, область «${area ? area.name : ''}»${hurtTotal > h0 ? ', урон ' + (hurtTotal - h0).toFixed(0) : ''}`);
       }
-    } catch (e) { log.push('STOP at step ' + idx + ' (' + D.route[idx].type + '): ' + e.message); }
-    return { log, idx, total: D.route.length, t: t.toFixed(1), y: P.pos.y.toFixed(1), won: g.game.won, shards: g.game.shards + '/' + g.game.shardsTotal, hp: P.health.toFixed(0), hurtTotal };
-  });
-  console.log(JSON.stringify(res, null, 1));
-  console.log(errs.join('\n'));
+    } catch (e) { log.push(`✗ ${cur}: ${e.message}`); }
+    return { log, done: done + '/' + stages.length, t: t.toFixed(0) + ' с', y: P.pos.y.toFixed(1), hp: P.health.toFixed(0), hurtTotal: hurtTotal.toFixed(0), climbs, minStamina: minStamina.toFixed(0), camps: g.game.campName || '' };
+  }, only);
+  console.log(res.log.join('\n'));
+  delete res.log;
+  console.log(JSON.stringify(res));
+  console.log(errs.join('\n') || 'без ошибок на странице');
   await browser.close();
 })();

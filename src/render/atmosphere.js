@@ -1,53 +1,58 @@
-// Настроение по глубине: цвет и густота дымки, сила неба и солнца, фонарик героя, мягкая подсветка
-// стен изнутри шахты и один общий свет от ближайшего костра (или от кристалла на дне).
-// Ламп мало нарочно: каждая лампа — работа видеокарте в каждой точке экрана (телефон греется).
+// Настроение по глубине: цвет и густота дымки, сила неба и солнца, фонарик героя и один общий свет
+// от ближайшего костра. В шахте и пещерах — темно и тепло, светят лампы (их свет запечён в скалу).
+// Ламп мало нарочно: каждая живая лампа — работа видеокарте в каждой точке экрана.
 import * as THREE from 'three';
-import { layerMix } from '../world/abyss.js';
 import { flicker } from './fire.js';
 
+// полосы по высоте: выше — светлее и прозрачнее, глубже — гуще дымка
+const BANDS = [
+  { y: 10, fog: '#dce7ea', fogD: 0.0017, light: 1.0, glow: '#eef6d0' },
+  { y: -25, fog: '#cfdfe0', fogD: 0.0023, light: 0.97, glow: '#dff3b8' },
+  { y: -85, fog: '#aec3cb', fogD: 0.0033, light: 0.86, glow: '#c4ecff' },
+  { y: -145, fog: '#8aa3b4', fogD: 0.0046, light: 0.74, glow: '#86ecff' },
+  { y: -210, fog: '#68869c', fogD: 0.006, light: 0.62, glow: '#7affd9' },
+].map((b) => ({ ...b, fogC: new THREE.Color(b.fog), glowC: new THREE.Color(b.glow) }));
+const CAVE = { fog: new THREE.Color('#1d1915'), fogD: 0.016, light: 0.3 };
 const lerp = (a, b, t) => a + (b - a) * t;
 
 export class Atmosphere {
   constructor(gfx) {
     this.gfx = gfx;
     this.localLight = new THREE.PointLight('#ff8a3a', 0, 16, 1.6);
-    this.fillLight = new THREE.PointLight('#ffffff', 1.3, 0, 0);
-    gfx.scene.add(this.localLight, this.fillLight);
+    gfx.scene.add(this.localLight);
     this.glow = new THREE.Color();              // цвет светящихся пылинок
     this.fog = new THREE.Color();
-    this.tmp = new THREE.Color();
+    this.cave = 0;                              // 0 — снаружи, 1 — глубоко в скале
   }
 
-  // fires — костры (у каждого base), goalPos — кристалл на дне
-  update(clock, player, fires, goalPos) {
-    const { scene, hemi, sun } = this.gfx;
-    const { localLight, fillLight, tmp } = this;
-    const m = layerMix(player.pos.y), t = m.t;
-    this.fog.set(m.a.fog).lerp(tmp.set(m.b.fog), t);
+  // inCave — герой внутри скалы (шахта, пещера); fires — костры (Vector3)
+  update(dt, clock, player, fires, inCave) {
+    const { scene, hemi, sun } = this.gfx, y = player.pos.y;
+    let i = 0;
+    while (i < BANDS.length - 2 && y < BANDS[i + 1].y) i++;
+    const a = BANDS[i], b = BANDS[i + 1], t = Math.min(1, Math.max(0, (a.y - y) / (a.y - b.y)));
+    this.cave += ((inCave ? 1 : 0) - this.cave) * Math.min(1, dt * 1.5);
+    const k = this.cave;
+    this.fog.copy(a.fogC).lerp(b.fogC, t).lerp(CAVE.fog, k);
     scene.fog.color.copy(this.fog);
     scene.background.copy(this.fog);
-    scene.fog.density = lerp(m.a.fogD, m.b.fogD, t);
-    const light = lerp(m.a.light, m.b.light, t);
-    hemi.intensity = 1.5 * light;
-    sun.intensity = 2.7 * Math.pow(light, 1.5);
-    player.lamp.intensity = Math.max(0, 1 - light) * 9;
-    fillLight.color.set(m.a.fill).lerp(tmp.set(m.b.fill), t);
-    fillLight.intensity = 1.2 + (1 - light) * 0.9;
-    fillLight.position.set(0, player.pos.y + 8, 0);
-    // ближайший костёр или кристалл на дне
+    scene.fog.density = lerp(lerp(a.fogD, b.fogD, t), CAVE.fogD, k);
+    // дальше, чем дымка закрывает почти всё (98.5%), не рисуем: в шахте это ~130 м, на дне ~350 м
+    const far = Math.min(1300, 2.1 / scene.fog.density);
+    const cam = this.gfx.camera;
+    if (Math.abs(cam.far - far) > 2) { cam.far = far; cam.updateProjectionMatrix(); }
+    const light = lerp(lerp(a.light, b.light, t), CAVE.light, k);
+    hemi.intensity = 1.25 * light;
+    sun.intensity = 2.1 * Math.pow(light, 1.2);
+    // фонарик на шапке: чем темнее, тем ярче; в шахте слабее — там свои лампы, пусть между ними будет темно
+    player.lamp.intensity = Math.max(0, 0.95 - light) * 7 * (1 - 0.45 * k);
+    this.glow.copy(a.glowC).lerp(b.glowC, t);
+    // ближайший костёр
     let best = null, bd = 40;
-    for (const f of fires) { const d = f.base.distanceTo(player.pos); if (d < bd) { bd = d; best = f; } }
-    const dg = goalPos.distanceTo(player.pos);
-    if (dg < 60 && (!best || dg < bd)) {
-      localLight.position.copy(goalPos);
-      localLight.color.set('#b86bff'); localLight.distance = 45; localLight.decay = 1.4;
-      localLight.intensity = 38 + Math.sin(clock * 1.7) * 6;
-    } else if (best) {
-      localLight.position.copy(best.base).y += 0.9;
-      localLight.color.set('#ff8a3a'); localLight.distance = 16; localLight.decay = 1.6;
-      localLight.intensity = flicker(clock);
-    } else localLight.intensity = 0;
-    this.glow.set(m.a.glow).lerp(tmp.set(m.b.glow), t);
-    if (this.glow.r + this.glow.g + this.glow.b < 0.1) this.glow.set('#e8f0c8');
+    for (const f of fires) { const d = f.distanceTo(player.pos); if (d < bd) { bd = d; best = f; } }
+    if (best) {
+      this.localLight.position.copy(best).y += 1.0;
+      this.localLight.intensity = flicker(clock);
+    } else this.localLight.intensity = 0;
   }
 }

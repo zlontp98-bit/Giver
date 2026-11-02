@@ -47,6 +47,7 @@
   .chip .ico { width: 14px; height: 14px; }
   #starIco { fill: #7fe8ff; stroke: none; }
   #starChip.pop { animation: pop .35s ease-out; }
+  #starChip.hide { display: none; }
   @keyframes pop { 40% { transform: scale(1.25); background: rgba(95, 224, 255, .45); } }
 
   /* полоска спуска: слева край Бездны, справа дно; палатки — лагеря */
@@ -230,10 +231,10 @@
     <h2>Как играть</h2>
     <div class="how">
       <div><span class="ic"><svg class="ico"><use href="#i-stick" /></svg></span><span>Левая половина экрана — идти, правая — повернуть камеру.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-hand" /></svg></span><span>У стены жми <b>Хват</b> — повиснешь на руках. Джойстик — лезть вниз, вверх и вбок. Силы тают: отдыхай на уступах.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-hook" /></svg></span><span>Светящееся кольцо: наведи камеру и жми <b>Крюк</b>. На верёвке джойстик вниз — спускаться. У троса — прокатишься через бездну.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-jump" /></svg></span><span>Прыгай по парящим камням, огромный гриб смягчит падение. Падать высоко — больно.</span></div>
-      <div><span class="ic"><svg class="ico"><use href="#i-gem" /></svg></span><span>Собирай светящиеся осколки. Палатки — точки сохранения, ягоды — силы.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-hand" /></svg></span><span>У любой крутой скалы жми <b>Хват</b> — повиснешь на руках. Джойстик — лезть вверх, вниз и вбок. На краю обрыва «Хват» — спуститься под край.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-jump" /></svg></span><span>Силы тают на стене (под нависанием — быстрее): отдыхай на уступах. В падении можно поймать стену. Выше 6 м падать больно.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-hook" /></svg></span><span><b>Крюк</b>, верёвки и тросы — в следующей сборке.</span></div>
+      <div><span class="ic"><svg class="ico"><use href="#i-gem" /></svg></span><span>Найди путь на дно первого яруса: лес, уступы, шахта, затерянный лагерь, большой спуск. Палатки — точки сохранения, ягоды — силы.</span></div>
     </div>
   </div>
 </div>
@@ -249,7 +250,7 @@
     <div class="seg" data-fps><button type="button" data-v="0">Нет</button><button type="button" data-v="1">Да</button></div>
     <button class="secondary" id="bench" type="button">Замер скорости · 30 с</button>
   </div>
-  <p class="small">«Замер» пролетит по Бездне и покажет, сколько кадров в секунду тянет телефон на этой графике. <span class="ver"></span></p>
+  <p class="small">«Замер» пролетит по первому ярусу и покажет, сколько кадров в секунду тянет телефон на этой графике. <span class="ver"></span></p>
   <div class="acts">
     <button class="primary" id="resume" type="button">Продолжить</button>
     <button class="secondary" id="toCamp" type="button">В лагерь</button>

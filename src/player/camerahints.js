@@ -4,10 +4,10 @@
 export class CameraHintMethods {
   // куда смотреть камере (null — пусть крутит игрок)
   cameraYaw() {
-    if (this.state === 'climb' || this.state === 'rope' || (this.state === 'mantle' && this.mantle.then !== 'ground')) {
-      const p = this.state === 'mantle' ? this.mantle.to : this.pos;
-      return Math.atan2(p.x, p.z) + Math.PI;
-    }
+    // на стене — за спину, со стороны пропасти (по нормали скалы)
+    if (this.state === 'climb' && this.climb) return Math.atan2(this.climb.n.x, this.climb.n.z);
+    if (this.state === 'mantle' && this.mantle.then === 'climb' && this.climb) return Math.atan2(this.climb.n.x, this.climb.n.z);
+    if (this.state === 'rope') return this.facing + Math.PI;
     if (this.state === 'zip' && this.zip) return Math.atan2(-this.zip.z.dir.x, -this.zip.z.dir.z);
     return null;
   }

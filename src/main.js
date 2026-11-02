@@ -6,20 +6,23 @@
 //   интерфейс  — ui/ (полоски, кнопки, управление, экраны, FPS и «Замер»)
 //   сохранение — core/save.js
 import * as THREE from 'three';
-import { createGfx, terrainMaterial, QUALITY, QUALITY_ORDER } from './render/gfx.js';
+import { createGfx, QUALITY, QUALITY_ORDER } from './render/gfx.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { loadModels } from './render/models.js';
 import { Campfire, Fireflies } from './render/fire.js';
-import { Abyss, BOTTOM_Y, LAYERS, layerAt } from './world/abyss.js';
-import { Descent } from './world/descent.js';
-import { World } from './world/decor.js';
+import { SdfWorld, PIT_DEPTH } from './world/sdf.js';
+import { buildLevel1, LEVEL_SEED } from './world/level1.js';
+import { buildTerrain, worldMaterial } from './world/terrain.js';
+import { Props } from './world/props.js';
+import { Water } from './world/water.js';
+import { Physics } from './world/physics.js';
 import { Motes } from './world/motes.js';
 import { Player } from './player/player.js';
 import { FollowCamera } from './game/camera.js';
 import { Input } from './ui/input.js';
 import { Hud, fmtTime } from './ui/hud.js';
 import { Screens } from './ui/screens.js';
-import { FpsMeter, Benchmark, gpuName, pathFromRoute } from './ui/perf.js';
+import { FpsMeter, Benchmark, gpuName } from './ui/perf.js';
 import { Save } from './core/save.js';
 import { ASSETS, FONTS } from './assets.gen.js';
 
@@ -35,18 +38,19 @@ const hud = new Hud();
 const gfx = createGfx();
 const { scene, camera } = gfx;
 
-// ——— мир ———
-const abyss = new Abyss(SEED);
-const descent = new Descent(abyss, SEED);               // заодно расставляет полки
-const rockMat = terrainMaterial(0);
-const rock = abyss.buildMeshes(rockMat);
-rock.traverse((o) => { if (o.isMesh && o.material === rockMat) gfx.rockMeshes.push(o); });
-scene.add(rock);
-const start = descent.start;
+// ——— мир: «формула мира» (для физики) и запечённые куски (для картинки) ———
+const W = new SdfWorld(LEVEL_SEED);
+const L = buildLevel1(W);
+gfx.materialFactory = worldMaterial;
+const terrain = buildTerrain(worldMaterial(0));
+scene.add(terrain.group);
+gfx.rockMeshes.push(...terrain.meshes);
+const start = new THREE.Vector3(...L.spawn);
+const areaName = (x, y, z) => L.areas.find((a) => a.test(x, y, z)).name;
 
 const game = {
-  running: false, paused: false, won: false, elapsed: 0, shards: 0, shardsTotal: 0, layer: 0,
-  checkpoint: start.clone(), campName: 'край Бездны',
+  running: false, paused: false, won: false, elapsed: 0, shards: 0, shardsTotal: 0, area: 'village',
+  checkpoint: start.clone(), campName: 'посёлок',
 };
 const events = {
   message: (t) => hud.message(t),
@@ -60,23 +64,23 @@ const events = {
   caught: () => hud.message('Успел схватиться!'),
   camp: (c) => {
     game.checkpoint.copy(c.pos);
-    game.campName = `лагерь «${LAYERS[c.layer].name}»`;
-    hud.message(`Лагерь — сюда вернёшься, если сорвёшься`, 3);
+    game.campName = c.name;
+    if (!c.village) hud.message(`${c.name[0].toUpperCase()}${c.name.slice(1)} — сюда вернёшься, если сорвёшься`, 3);
   },
   shard: () => { game.shards++; hud.starPop(); if (game.shards === game.shardsTotal) hud.message('Все осколки собраны!', 3); },
   bottom: () => win(),
 };
 
-let world = null, player = null, motes = null;
+let props = null, physics = null, water = null, player = null, motes = null;
 const atmosphere = new Atmosphere(gfx);                 // свет и дымка по глубине
 const fires = [], flies = [];
-const cam = new FollowCamera(camera, abyss, start);
+const cam = new FollowCamera(camera, { solid: (x, y, z) => (physics ? physics.solid(x, y, z) : W.f(x, y, z) < 0.25) }, start);
 const input = new Input($('layer'), hud);
 const meter = new FpsMeter($('fps'));
 const bench = new Benchmark();
 const screens = new Screens({
   game, hud, input, save, version: VERSION,
-  onStart: () => hud.message('Цель — дно Бездны. Иди к краю ямы: у таблички мостки вниз', 5, true),
+  onStart: () => hud.message('Ты в посёлке на краю Бездны. Пройди к смотровой площадке — оттуда тропа вниз', 6, true),
   onRespawn: () => respawn(),
   onToCamp: () => respawn(),
   onQuality: (q) => setQuality(q, true),
@@ -87,24 +91,37 @@ const screens = new Screens({
 });
 
 loadModels().then((models) => {
-  descent.build(scene, models);
-  world = new World(scene, abyss, descent, models, SEED, gfx);
-  player = new Player(scene, abyss, descent, world, events);
+  props = new Props(scene, L, W, models, gfx);
+  physics = new Physics(W, props.colliders);
+  water = new Water(scene, L, W);
+  player = new Player(scene, physics, props, events);
+  player.hints = makeHints();
   player.spawn(start);
-  player.facing = cam.yaw + Math.PI;
-  // у костров нет своего света: один общий светит от ближайшего (меньше работы видеокарте)
-  for (const c of descent.camps) { fires.push(new Campfire(scene, c.fire, { light: false })); flies.push(new Fireflies(scene, c.pos, 14, 7)); }
-  if (descent.baseFire) fires.push(new Campfire(scene, descent.baseFire, { light: false }));
+  player.facing = Math.PI;                                  // лицом к Бездне (на юг)
+  cam.yaw = 0;
+  props.camps.forEach((c, i) => { c.index = i; });
+  for (const f of props.fires) fires.push(new Campfire(scene, f, { light: false }));
+  for (const c of props.camps) if (!c.village) flies.push(new Fireflies(scene, c.pos, 14, 7));
   motes = new Motes(scene);
-  game.shardsTotal = descent.shards.length;
-  hud.setupTrack(BOTTOM_Y, descent.camps);
+  hud.setupTrack(-PIT_DEPTH, props.camps.filter((c) => !c.village), areaName);
   setQuality(save.settings.quality || 'low', false);
   setShowFps(!!save.settings.showFps, false);
-  camera.position.set(start.x, start.y + 4, start.z + 9);
+  camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
-  window.__giver = { game, player, abyss, descent, world, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp) };
+  window.__giver = { game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp) };
 });
+
+// подсказки по пути (каждая — один раз)
+function makeHints() {
+  const v = (p) => new THREE.Vector3(p[0], p[1], p[2]);
+  return [
+    { pos: v(L.lookout.a), r: 8, text: 'Смотровая площадка. Справа от неё — тропа вниз, в Бездну' },
+    { pos: v([L.aX - 40, -24, L.aZ - 10]), r: 14, text: 'Лесная окраина. Подойди к краю или к скале и жми «Хват» — можно лезть по любой крутой скале' },
+    { pos: v(L.gate.inner), r: 12, text: 'Проход на второй ярус завален. Он откроется в следующих версиях' },
+    { pos: v(L.mine[0]), r: 10, text: 'Заброшенная шахта. Внутри темно — фонарик на шапке зажжётся сам' },
+  ].map((h) => ({ ...h, shown: false }));
+}
 window.addEventListener('resize', () => gfx.resize());
 
 function respawn() {
@@ -125,6 +142,14 @@ function setShowFps(on, remember) {
   if (remember) { save.settings.showFps = on; save.write(); }
 }
 
+// дошёл до дна первого яруса — запомнить время (игра продолжается: можно гулять по дну)
+function reachBottom() {
+  game.reachedBottom = true;
+  const rec = save.records.layer1, isRecord = !rec || game.elapsed < rec.time;
+  if (isRecord) { save.records.layer1 = { time: game.elapsed }; save.write(); }
+  hud.message(`Дно первого яруса за ${fmtTime(game.elapsed)}${isRecord ? ' — рекорд!' : ` (рекорд ${fmtTime(rec.time)})`}. Проход ниже пока закрыт решёткой.`, 6);
+}
+
 function win() {
   if (game.won) return;
   game.won = true;
@@ -138,7 +163,7 @@ function win() {
 
 // ——— «Замер» скорости: облёт по маршруту без ограничения кадров ———
 function startBench() {
-  bench.start(pathFromRoute(descent.route), player, cam);
+  bench.start(L.bench.map((p) => new THREE.Vector3(p[0], p[1], p[2])), player, cam);
 }
 function endBench(completed) {
   const r = bench.finish(player, cam);
@@ -163,7 +188,6 @@ const NO_BUTTONS = { jump: false, hook: false, grab: false };
 
 function stepOnce(inp) {
   courseTime += STEP;
-  descent.update(courseTime, STEP);
   player.carry();
   player.update(STEP, inp, cam.yaw);
 }
@@ -182,7 +206,6 @@ function frame(now) {
   const inp = input.read();
   if (bench.running) {
     bench.step(raw, player, cam);
-    descent.update(courseTime += dt, dt);
   } else if (game.running) {
     game.elapsed += dt;
     cam.look(inp);
@@ -196,18 +219,20 @@ function frame(now) {
       acc -= STEP;
     }
     adaptQuality(raw);
-    const k = layerAt(player.pos.y);
-    if (k > game.layer) { game.layer = k; hud.message(`${LAYERS[k].name} · глубина ${Math.round(-LAYERS[k].top)} м`, 3.5); }
-  } else if (player) {
-    descent.update(courseTime += dt, dt);
+    const area = L.areas.find((a) => a.test(player.pos.x, player.pos.y, player.pos.z));
+    if (area.id !== game.area) { game.area = area.id; hud.message(`${area.name} · глубина ${Math.max(0, Math.round(-player.pos.y))} м`, 3); }
+    if (!game.reachedBottom && player.state === 'ground' && player.pos.y < -PIT_DEPTH + 8) reachBottom();
   }
   if (!player) return;
   player.animate(dt);
-  world.update(clock);
   const scale = gfx.pixelScale();
+  props.update(clock, camera.position);
+  terrain.update(camera.position);
+  water.update(clock, scale);
   fires.forEach((f) => f.update(clock, scale));
   flies.forEach((f) => f.update(clock, scale));
-  atmosphere.update(clock, player, fires, world.goalPos);
+  const p = player.pos, inCave = p.y < -60 && Math.hypot(p.x, p.z) > W.wallR(p.x, p.z, p.y) + 2;
+  atmosphere.update(dt, clock, player, props.fires, inCave);
   motes.update(clock, player.pos, atmosphere.glow, Math.min(1, Math.max(0, (-player.pos.y - 25) / 60)), scale);
   cam.update(dt, inp, player, game.running);
   gfx.follow(player.pos);

@@ -1,6 +1,5 @@
 // Интерфейс поверх игры: полоски, глубина, осколки, полоска спуска с лагерями, прицел крюка, кнопки, сообщения.
 import * as THREE from 'three';
-import { LAYERS, layerAt, RIM_Y } from '../world/abyss.js';
 
 const $ = (id) => document.getElementById(id);
 const ICON = (id) => `<svg class="ico"><use href="#i-${id}" /></svg>`;
@@ -22,9 +21,10 @@ export class Hud {
     this.v = new THREE.Vector3();
   }
 
-  // метки на полоске спуска: лагеря и дно
-  setupTrack(bottomY, camps) {
+  // метки на полоске спуска: лагеря и дно; areaName(x, y, z) — название места
+  setupTrack(bottomY, camps, areaName) {
     this.bottomY = bottomY;
+    this.areaName = areaName;
     this.campMarks = camps.map((c) => {
       const el = document.createElement('div');
       el.className = 'mk';
@@ -57,9 +57,10 @@ export class Hud {
     this.cls('low', this.stBar, 'low', player.stamina < 25 && player.state !== 'ground');
     const y = player.pos.y;
     this.set('alt', this.altV, 'textContent', `${Math.max(0, Math.round(-y))} м`);
-    this.set('altT', this.altT, 'textContent', y > RIM_Y - 1 ? 'край Бездны' : LAYERS[layerAt(y)].name);
+    this.set('altT', this.altT, 'textContent', this.areaName(player.pos.x, y, player.pos.z));
     this.set('time', this.time, 'textContent', fmtTime(game.elapsed));
     this.set('stars', this.starsEl, 'textContent', `${game.shards}/${game.shardsTotal}`);
+    this.cls('noShards', this.starChip, 'hide', !game.shardsTotal);
     this.set('me', this.me.style, 'left', `${Math.max(0, Math.min(100, (y / this.bottomY) * 100)).toFixed(1)}%`);
     if (this.campMarks) for (const m of this.campMarks) this.cls(`camp${m.c.index}`, m.el, 'done', m.c.reached);
     // кнопка «Хват»: светится у стены; синяя, когда висим на руках

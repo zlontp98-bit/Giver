@@ -22,7 +22,7 @@ const OUT = path.resolve(__dirname, 'out');
   const check = (name, ok, extra = '') => console.log(`${ok ? 'OK ' : 'ОШИБКА'} ${name}${extra ? ' — ' + extra : ''}`);
   const s0 = await page.evaluate(() => window.__giver.save.data);
   check('перевод сохранения 0.4', s0.v === 2 && s0.settings.quality === 'medium' && s0.records.abyss.time === 300.5 && s0.records.abyss.shards === 40 && s0.records.mountain.stars === 20, JSON.stringify(s0));
-  check('рекорд на старте', (await page.textContent('#best')) === 'Рекорд: 5:00 · осколков 40', await page.textContent('#best'));
+  check('рекорды 0.4 на старте не показываются', (await page.textContent('#best')).trim() === '', await page.textContent('#best'));
   check('версия на старте', /версия \S+/.test(await page.textContent('#sStart .ver')), await page.textContent('#sStart .ver'));
   check('качество из сохранения', (await page.evaluate(() => window.__giver.gfx.quality)) === 'medium');
   await page.click('#sStart [data-quality] button[data-q="low"]');      // как игрок: кнопкой в меню (запоминается)

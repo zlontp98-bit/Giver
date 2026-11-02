@@ -10,8 +10,9 @@ export class Screens {
   constructor(ctx) {
     this.ctx = ctx;
     const { game, hud, save } = ctx;
-    const rec = save.records.abyss;
-    if (rec) $('best').textContent = `Рекорд: ${fmtTime(rec.time)} · осколков ${rec.shards || 0}`;
+    // рекорды старой Бездны (0.4) к новому миру не относятся — показываем только спуск на дно первого яруса
+    const rec = save.records.layer1;
+    if (rec) $('best').textContent = `Рекорд спуска на дно: ${fmtTime(rec.time)}`;
     document.querySelectorAll('.ver').forEach((el) => { el.textContent = `версия ${ctx.version}`; });
 
     $('go').onclick = () => {

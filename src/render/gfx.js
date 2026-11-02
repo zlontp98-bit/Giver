@@ -13,7 +13,7 @@ export const QUALITY = {
 };
 export const QUALITY_ORDER = ['low', 'medium', 'high'];
 
-export const SUN_DIR = new THREE.Vector3(-0.3, 0.9, 0.32).normalize();   // высоко — светит в бездну
+export const SUN_DIR = new THREE.Vector3(-0.42, 0.78, -0.46).normalize();   // с северо-запада, высоко — то же при запекании мира
 const HORIZON = new THREE.Color('#f2e2cc'), TOP = new THREE.Color('#5fa4e0');
 const FOG = new THREE.Color('#ead9c2');
 
@@ -27,10 +27,10 @@ export function createGfx() {
   const scene = new THREE.Scene();
   scene.background = FOG.clone();
   scene.fog = new THREE.FogExp2(FOG, 0.0042);
-  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 2600);
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.15, 1300);
 
   // небо: от тёплой дымки у горизонта к голубому, солнце со свечением
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(2000, 32, 16), new THREE.ShaderMaterial({
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(1100, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
     uniforms: { top: { value: TOP }, horizon: { value: HORIZON }, sunDir: { value: SUN_DIR }, sunCol: { value: new THREE.Color('#fff1d0') } },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -98,11 +98,11 @@ export function createGfx() {
         composer.setSize(window.innerWidth, window.innerHeight);
         renderer.toneMapping = THREE.NoToneMapping;
       } else {
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMapping = THREE.NeutralToneMapping;      // бережнее к цвету, чем ACES — меньше «выцветания»
       }
       for (const im of gfx.grass) im.count = Math.max(1, Math.floor(im.userData.total * q.grass));
       if (gfx.rockMeshes.length) {
-        if (!gfx.terrainMats) gfx.terrainMats = [0, 1, 2].map((lv) => terrainMaterial(lv));
+        if (!gfx.terrainMats) gfx.terrainMats = [0, 1, 2].map((lv) => (gfx.materialFactory || terrainMaterial)(lv));
         for (const m of gfx.rockMeshes) m.material = gfx.terrainMats[q.tex];
       }
       scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.needsUpdate = true; }); });

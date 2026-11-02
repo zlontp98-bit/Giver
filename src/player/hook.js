@@ -9,11 +9,11 @@ export class HookMethods {
     if (this.state === 'climb' || this.state === 'mantle' || this.rope || this.zip || this.hook || this.dead) { this.target = null; return null; }
     const chest = _c.copy(this.pos).setY(this.pos.y + 1.3);
     let best = null, bestScore = 1e9;
-    for (const a of this.D.anchors) {
+    for (const a of this.anchors) {
       const d = _d.subVectors(a.pos, chest), dist = d.length();
       if (dist > (a.kind === 'zip' ? ZIP_RANGE : HOOK_RANGE) || dist < 0.3 || d.y > 3) continue;
       const score = (1 - d.dot(camDir) / dist) * 10 + dist * 0.4;
-      if (score < bestScore && this.A.clearLine(chest, a.pos)) { bestScore = score; best = a; }
+      if (score < bestScore && this.P.clearLine(chest, a.pos)) { bestScore = score; best = a; }
     }
     this.target = best;
     return best;
@@ -22,7 +22,7 @@ export class HookMethods {
   fireHook() {
     if (this.rope || this.zip) { this.letGoRope(false); return; }
     if (this.hook || this.state === 'mantle' || this.state === 'climb') return;
-    if (!this.target) { this.ev.message('Рядом нет кольца — подойди к светящемуся кольцу'); return; }
+    if (!this.target) { this.ev.message('Крюк заработает на следующем этапе'); return; }
     const dist = _c.copy(this.pos).setY(this.pos.y + 1.5).distanceTo(this.target.pos);
     this.hook = { anchor: this.target, t: 0, dur: Math.max(0.1, dist / 60) };
   }

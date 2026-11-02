@@ -18,22 +18,68 @@ function b64ToBuf(url) {
   return u.buffer;
 }
 
+// Модели наборов Kenney с общей текстурой-палитрой (colormap.png) называются с приставкой набора:
+// sv- (выживание), ft- (городок), tr- (железная дорога), dg- (подземелье). Палитру берём из ASSETS.
+const KITS = ['sv', 'ft', 'tr', 'dg'];
+
 export async function loadModels() {
-  const loader = new GLTFLoader();
   const names = Object.keys(ASSETS).filter((n) => n.endsWith('.glb'));
-  const out = {};
+  const out = {}, maps = {};
   await Promise.all(names.map(async (n) => {
-    const g = await loader.parseAsync(b64ToBuf(ASSETS[n]), '');
+    const kit = KITS.find((k) => n.startsWith(k + '-'));
+    const mgr = new THREE.LoadingManager();
+    if (kit) mgr.setURLModifier((u) => (u.endsWith('colormap.png') ? ASSETS[`${kit}-colormap.png`] : u));
+    const g = await new GLTFLoader(mgr).parseAsync(b64ToBuf(ASSETS[n]), '');
     g.scene.traverse((o) => {
       if (!o.isMesh) return;
       const src = o.material;
-      const c = PALETTE[src.name] ? new THREE.Color(PALETTE[src.name]) : src.color;
-      o.material = new THREE.MeshLambertMaterial({ color: c, side: src.side });
+      if (src.map) {
+        // одна палитра на весь набор — без мип-уровней, чтобы цвета соседних клеток не смешивались
+        const map = maps[kit] || (maps[kit] = src.map);
+        map.generateMipmaps = false;
+        map.minFilter = THREE.LinearFilter;
+        o.material = new THREE.MeshLambertMaterial({ map, side: src.side });
+      } else {
+        const c = PALETTE[src.name] ? new THREE.Color(PALETTE[src.name]) : src.color;
+        o.material = new THREE.MeshLambertMaterial({ color: c, side: src.side });
+      }
       o.castShadow = true;
       o.receiveShadow = true;
     });
-    out[n.replace('.glb', '')] = g.scene;
+    out[n.replace('.glb', '')] = kit ? g.scene : mergeColored(g.scene);
   }));
+  return out;
+}
+
+// Модели без текстуры (природа Kenney): все части — в одну геометрию с цветом в вершинах.
+// Тогда пачка таких моделей рисуется одним вызовом, а не двумя-тремя (листва, ствол…).
+function mergeColored(root) {
+  root.updateMatrixWorld(true);
+  const pos = [], nor = [], col = [], idx = [];
+  let side = THREE.FrontSide;
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    const c = o.material.color, base = pos.length / 3;
+    if (o.material.side !== THREE.FrontSide) side = THREE.DoubleSide;
+    const P = g.attributes.position, N = g.attributes.normal;
+    for (let i = 0; i < P.count; i++) {
+      pos.push(P.getX(i), P.getY(i), P.getZ(i));
+      nor.push(N.getX(i), N.getY(i), N.getZ(i));
+      col.push(c.r, c.g, c.b);
+    }
+    if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(base + g.index.getX(i));
+    else for (let i = 0; i < P.count; i++) idx.push(base + i);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side }));
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  const out = new THREE.Group();
+  out.add(mesh);
   return out;
 }
 

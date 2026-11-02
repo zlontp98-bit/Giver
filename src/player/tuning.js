@@ -8,3 +8,5 @@ export const ROPE_MIN = 1.0, ROPE_MAX = 75, ROPE_DOWN = 5, ROPE_UP = 2.2;
 export const HOOK_RANGE = 14;
 export const ZIP_RANGE = 7;
 export const COST = { run: 8, jump: 3, climb: 6.5, hang: 2.2, grab: 10, rope: 1.2, ropeUp: 7, regen: 22 };
+export const PR = 0.33, PH = 1.75;                          // герой: радиус и рост
+export const WALKABLE = 0.7;                                // круче — уже не пройти пешком (≈45°)

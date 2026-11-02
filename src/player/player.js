@@ -1,8 +1,7 @@
 // Герой в Бездне: состояние и движение по земле и в воздухе, падения, подборы. Лазание, крюк и
 // внешний вид — в climb.js, hook.js и anim.js (их методы подмешиваются сюда же).
 import * as THREE from 'three';
-import { BOTTOM_Y, PR } from '../world/abyss.js';
-import { G, WALK, RUN, JUMP, SAFE_FALL, DEADLY_FALL, COST } from './tuning.js';
+import { G, WALK, RUN, JUMP, SAFE_FALL, DEADLY_FALL, COST, PR, PH, WALKABLE } from './tuning.js';
 import { ClimbMethods } from './climb.js';
 import { HookMethods } from './hook.js';
 import { AnimMethods } from './anim.js';
@@ -10,9 +9,14 @@ import { CameraHintMethods } from './camerahints.js';
 
 export { HOOK_RANGE, COST } from './tuning.js';
 
+const BODY = [0.55, 1.05, 1.5];             // шары тела (высота центра над ступнями)
+
 export class Player {
-  constructor(scene, abyss, descent, world, events) {
-    this.A = abyss; this.D = descent; this.W = world; this.ev = events;
+  // physics — world/physics.js, props — world/props.js (лагеря, ягоды), events — сообщения игре
+  constructor(scene, physics, props, events) {
+    this.P = physics; this.props = props; this.ev = events;
+    this.anchors = [];                       // кольца для крюка (появятся на этапе 2)
+    this.hints = [];
     this.pos = new THREE.Vector3(); this.vel = new THREE.Vector3();
     this.state = 'ground';
     this.facing = Math.PI;
@@ -27,8 +31,8 @@ export class Player {
 
   spawn(p) {
     this.pos.copy(p);
-    const s = this.supportAt(_q.copy(p).setY(p.y + 1.0), 1.5);
-    if (s) this.pos.y = s.y;
+    const g = this.P.ground(p.x, p.y, p.z, 3, 8);
+    if (g) this.pos.y = g.y;
     this.vel.set(0, 0, 0);
     this.state = 'ground';
     this.health = 100; this.stamina = 100;
@@ -64,42 +68,40 @@ export class Player {
     this.restTimer += dt;
     if (this.state === 'ground' && this.restTimer > 0.5) this.stamina = Math.min(100, this.stamina + COST.regen * dt);
     if (this.state === 'air' && this.peakY - this.pos.y > DEADLY_FALL) this.hurt(1000, 'abyss');
-    if (this.pos.y < BOTTOM_Y - 10) this.hurt(1000, 'abyss');
+    if (this.pos.y < -260) this.hurt(1000, 'abyss');
     this.canGrab = this.grabSpot() !== null;
-    this.checkPickups();
+    this.checkPickups(dt);
   }
 
-  // ——— опора под ногами: плато, полки, дно, доски, камни, гриб ———
-  supportAt(p, step = 0.4) {
-    let y = this.A.support(p.x, p.z, p.y, step), box = null;
-    const b = this.D.support(p.x, p.z, p.y, step);
-    if (b && (y === null || b.top >= y)) { y = b.top; box = b.box; }
-    return y === null ? null : { y, box };
-  }
+  // ——— опора и столкновения ———
+  // опора под ногами (не выше p.y + step, не ниже p.y − drop): { y, ny, box } или null
+  supportAt(p, step = 0.4, drop = 3) { return this.P.ground(p.x, p.y, p.z, step, drop); }
 
   collide() {
-    const a = this.A.collide(this.pos, this.vel);
-    this.W.pushOut(this.pos, PR);
-    const b = this.D.pushOut(this.pos, this.vel);
-    return a || b;
+    const p = this.pos;
+    for (const h of BODY) {
+      _c.set(p.x, p.y + h, p.z);
+      if (this.P.pushSphere(_c, PR, this.vel)) { p.x = _c.x; p.y = _c.y - h; p.z = _c.z; }
+    }
+    return this.P.pushProps(p, PR, PH, this.vel);
   }
 
-  // ——— земля ———
+  // ——— земля: разгон и торможение с небольшой инерцией ———
   updateGround(dt, input, move, amount) {
     const p = this.pos;
     const running = input.run && amount > 0.5 && this.stamina > 1;
     const speed = running ? RUN : WALK;
     if (running) this.spend(COST.run * dt);
-    const k = Math.min(1, 12 * dt);
+    const k = Math.min(1, (amount > 0.05 ? 9 : 13) * dt);
     this.vel.x += (move.x * speed * amount - this.vel.x) * k;
     this.vel.z += (move.z * speed * amount - this.vel.z) * k;
     this.vel.y = 0;
     if (amount > 0.05) this.turnTo(Math.atan2(move.x, move.z), dt, 12);
     p.x += this.vel.x * dt; p.z += this.vel.z * dt;
     this.collide();
-    const sup = this.supportAt(p, 0.45);
-    if (!sup || sup.y < p.y - 0.6) { this.state = 'air'; this.onBox = null; }
-    else { p.y = sup.y; this.onBox = sup.box; }
+    const g = this.P.ground(p.x, p.y, p.z, 0.55, 0.7);
+    if (!g || (g.ny < WALKABLE && !g.box)) { this.state = 'air'; this.onBox = null; }
+    else { p.y = g.y; this.onBox = g.box; }
     if (input.grab) this.tryGrab();
     else if (input.hook) this.fireHook();
     else if (input.jump && this.state === 'ground') this.jump();
@@ -129,14 +131,15 @@ export class Player {
     if (hs > cap) { this.vel.x *= cap / hs; this.vel.z *= cap / hs; }
     this.flingSpeed = Math.max(0, this.flingSpeed - dt * 4);
     p.addScaledVector(this.vel, dt);
+    // приземление: опора, которую пересекли за этот шаг (до того, как стены вытолкнут)
+    if (this.vel.y <= 0) {
+      const g = this.P.ground(p.x, p.y, p.z, Math.max(0.05, this.prevY - p.y + 0.05), 0.05);
+      if (g && (g.ny >= WALKABLE || g.box)) { this.land(g); return; }
+    }
     this.collide();
     this.peakY = Math.max(this.peakY, p.y);
     if (input.grab) { this.tryGrab(); if (this.state !== 'air') return; }
     if (input.hook) this.fireHook();
-    if (this.state !== 'air' || this.vel.y > 0) return;
-    // приземление: опора, которую пересекли за этот шаг
-    const sup = this.supportAt(_q.set(p.x, this.prevY, p.z), 0.05);
-    if (sup && sup.y >= p.y) this.land(sup);
   }
 
   land(sup) {
@@ -149,13 +152,12 @@ export class Player {
     this.state = 'ground';
     this.squash = Math.min(1, Math.max(0, fall) / 6);
     if (sup.box && sup.box.soft) {
-      // огромный гриб пружинит и гасит удар
+      // мягкое (гриб, сено) пружинит и гасит удар
       if (fall > 2.5) { this.vel.y = Math.min(8, fall * 0.5); this.state = 'air'; this.peakY = p.y; this.squash = 1; if (this.ev.boing) this.ev.boing(); }
       return;
     }
     if (fall > SAFE_FALL) this.hurt(Math.round((fall - SAFE_FALL) * 6), 'fall');
   }
-
 
   // ——— короткие переходы (перелезть, повиснуть) ———
   startMantle(to, dur, then, arc) {
@@ -176,7 +178,7 @@ export class Player {
     this.mantle = null;
     this.state = m.then;
     if (m.then === 'ground') {
-      const s = this.supportAt(_q.copy(this.pos).setY(this.pos.y + 0.3), 0.6);
+      const s = this.supportAt(this.pos, 0.6, 0.8);
       if (s) { this.pos.y = s.y; this.onBox = s.box; } else this.state = 'air';
       this.peakY = this.pos.y;
       this.squash = 0.4;
@@ -205,32 +207,27 @@ export class Player {
     }
   }
 
-  checkPickups() {
-    const p = this.pos, cy = p.y + 0.9;
-    for (const s of this.D.shards) {
-      if (s.taken) continue;
-      if (Math.abs(s.pos.x - p.x) < 1.2 && Math.abs(s.pos.z - p.z) < 1.2 && Math.abs(s.pos.y - cy) < 1.5) {
-        s.taken = true; s.mesh.visible = false; this.ev.shard(s);
-      }
-    }
-    for (const b of this.W.bushes) {
+  checkPickups(dt) {
+    const p = this.pos;
+    const bushes = this.props.bushes || [];
+    for (const b of bushes) {
       if (b.taken) continue;
-      if (Math.abs(b.x - p.x) < 1.5 && Math.abs(b.z - p.z) < 1.5 && Math.abs(b.y - p.y) < 2) {
-        b.taken = true; b.berries.visible = false;
+      if (Math.abs(b.x - p.x) < 1.6 && Math.abs(b.z - p.z) < 1.6 && Math.abs(b.y - p.y) < 2) {
+        b.taken = true;
+        this.props.takeBerries(b);
         this.stamina = 100; this.health = Math.min(100, this.health + 25);
         this.ev.berries();
       }
     }
-    for (const c of this.D.camps) {
-      if (Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < 4.5 && Math.abs(c.pos.y - p.y) < 3) {
+    for (const c of this.props.camps) {
+      if (Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < 5 && Math.abs(c.pos.y - p.y) < 3) {
         if (!c.reached) { c.reached = true; this.ev.camp(c); }
-        if (this.state === 'ground') this.health = Math.min(100, this.health + 20 * (1 / 60));
+        if (this.state === 'ground') this.health = Math.min(100, this.health + 20 * dt);
       }
     }
-    for (const h of this.D.hints) {
-      if (!h.shown && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < h.r && Math.abs(h.pos.y - p.y) < 3) { h.shown = true; this.ev.hint(h.text); }
+    for (const h of this.hints) {
+      if (!h.shown && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < h.r && Math.abs(h.pos.y - p.y) < 4) { h.shown = true; this.ev.hint(h.text); }
     }
-    if (this.state === 'ground' && p.y < BOTTOM_Y + 3 && Math.hypot(p.x, p.z) < 9) this.ev.bottom();
   }
 
   turnTo(target, dt, speed) {
@@ -246,4 +243,4 @@ for (const M of [ClimbMethods, HookMethods, AnimMethods, CameraHintMethods]) {
   for (const k of Object.getOwnPropertyNames(M.prototype)) if (k !== 'constructor') Player.prototype[k] = M.prototype[k];
 }
 
-const _a = new THREE.Vector3(), _m = new THREE.Vector3(), _q = new THREE.Vector3();
+const _a = new THREE.Vector3(), _m = new THREE.Vector3(), _c = new THREE.Vector3();

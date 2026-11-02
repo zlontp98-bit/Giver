@@ -5,9 +5,14 @@
 //   dist/giver.html                                       — всё в одном файле (браузер, артефакт)
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { bakeWorld } from './tools/bake-world.mjs';
+
+// 0. Мир: «формула мира» → готовые куски со светом и цветом (повторно — только если исходники менялись)
+const baked = await bakeWorld({ force: process.argv.includes('--rebake') });
+console.log(baked.cached ? 'мир: без изменений' : `мир запечён: ${baked.tris} треугольников, ${baked.mb} МБ, ${baked.sec} с`);
 
 // 1. Ассеты → src/assets.gen.js (base64; GLB разбираем сами, без fetch)
-const MIME = { glb: 'model/gltf-binary', jpg: 'image/jpeg', woff2: 'font/woff2' };
+const MIME = { glb: 'model/gltf-binary', jpg: 'image/jpeg', png: 'image/png', woff2: 'font/woff2' };
 const lines = [];
 for (const dir of ['models', 'textures', 'fonts']) {
   for (const f of readdirSync(`assets/${dir}`)) {
