@@ -39,11 +39,22 @@ const q = process.argv[2] || 'medium', only = process.argv[3];
     ['h6-longzip', () => { const g = window.__giver, P = g.player, a = P.anchors.filter((a) => a.kind === 'zip')[5], z = a.zip, V = P.pos.constructor, back = z.dir.clone().setY(0).normalize(); P.spawn(new V(z.a.x - back.x * 1.3, z.a.y, z.a.z - back.z * 1.3)); g.cam.yaw = Math.atan2(-back.x, -back.z); g.cam.pitch = 0.1; P.pickTarget(new V(back.x, -0.1, back.z)); P.fireHook(); for (let k = 0; k < 260; k++) g.step({ mx: 0, my: 0, jump: false, hook: false, grab: false }); g.cam.yaw = Math.atan2(-back.x, -back.z) - 2.0; g.cam.pitch = 0.35; }, 600],
   ];
   if (only === 'hook') shots.splice(0, shots.length, ...hookShots.filter((h) => !process.argv[4] || h[0].includes(process.argv[4])));
+  // тайники и записки (этап 3): node tools/gallery.cjs medium secret
+  const near = (fx, back, yaw, pitch) => `(() => { const g = window.__giver, P = g.player, V = P.pos.constructor, f = ${fx}; const p = f.pos || new V(...f.at); P.spawn(new V(p.x + ${back[0]}, p.y + 1, p.z + ${back[1]})); g.cam.yaw = ${yaw}; g.cam.pitch = ${pitch}; })()`;
+  const secretShots = [
+    ['s1-note', () => { const g = window.__giver, P = g.player, V = P.pos.constructor, n = g.props.notes[0]; P.spawn(new V(n.pos.x + 1.5, n.pos.y + 1, n.pos.z + 1.2)); g.cam.yaw = Math.atan2(1.5, 1.2) + 0.5; g.cam.pitch = 0.2; }],
+    ['s2-notecard', () => { const g = window.__giver; g.act(); }, 900],
+    ['s3-waterfall', () => { document.getElementById('noteClose').onclick(); const g = window.__giver, L = g.L, W = g.W, P = g.player, V = P.pos.constructor, th = L.thW, R = W.pitR(Math.cos(th), Math.sin(th), -22); P.spawn(new V(Math.sin(th) * (R + 3), -22, Math.cos(th) * (R + 3))); g.cam.yaw = th + 0.2; g.cam.pitch = 0.1; }],
+    ['s4-crevice', () => { const g = window.__giver, L = g.L, W = g.W, P = g.player, V = P.pos.constructor, S = L.secrets, th = S.thC, R = W.pitR(Math.cos(th), Math.sin(th), -60); P.spawn(new V(Math.sin(th) * (R + 8), S.crevY + 1, Math.cos(th) * (R + 8))); g.cam.yaw = th + Math.PI + 0.1; g.cam.pitch = 0.15; }],
+    ['s5-mineroom', () => { const g = window.__giver, P = g.player, V = P.pos.constructor, f = g.props.finds[2], S = g.L.secrets; P.spawn(new V(f.pos.x - 2.5, f.pos.y + 1, f.pos.z + 1.5)); g.cam.yaw = Math.atan2(-2.5, 1.5) + 0.3; g.cam.pitch = 0.15; }],
+    ['s6-island', () => { const g = window.__giver, L = g.L, P = g.player, V = P.pos.constructor, I = L.lake.island; P.spawn(new V(I.x - 7, -205, I.z + 2)); g.cam.yaw = Math.atan2(-7, 2) + 0.15; g.cam.pitch = 0.18; }],
+  ];
+  if (only === 'secret') shots.splice(0, shots.length, ...secretShots);
   for (const [name, setup, wait] of shots) {
-    if (only && only !== 'hook' && !name.includes(only)) continue;
+    if (only && only !== 'hook' && only !== 'secret' && !name.includes(only)) continue;
     await page.evaluate(`(${setup.toString()})()`);
     await page.waitForTimeout(wait || 2600);
-    if (/mine|hall/.test(name)) await page.waitForTimeout(6000);    // дымка в шахте темнеет постепенно
+    if (/mine|hall|crevice/.test(name)) await page.waitForTimeout(6000);    // дымка в шахте темнеет постепенно
     await page.screenshot({ path: path.join(OUT, `gal-${name}.png`) });
     const info = await page.evaluate(() => { const g = window.__giver, r = g.gfx.renderer.info.render; return { y: +g.player.pos.y.toFixed(1), state: g.player.state, area: g.game.area }; });
     console.log(name, JSON.stringify(info));

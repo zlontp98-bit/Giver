@@ -120,6 +120,29 @@ export class Props {
     this.anchors = [];              // за что цепляется крюк, кроме скал: кольца и начала тросов
     this.zipLines();
     this.rings();
+    this.notesAndFinds();
+  }
+
+  // ——— записки (столбики с табличкой) и находки (сундуки с огоньком над ними) ———
+  notesAndFinds() {
+    this.notes = this.L.notes.map((n) => ({ id: n.id, title: n.title, text: n.text, pos: new THREE.Vector3(...n.at), read: false }));
+    this.finds = this.L.finds.map((f, i) => ({ id: f.id, name: f.name, where: f.where, pos: new THREE.Vector3(...f.pos), taken: false, idx: i }));
+    this.many('sv-signpost-single', this.notes.map((n, i) => ({ x: n.pos.x, y: n.pos.y, z: n.pos.z, ry: i * 1.7, s: 2.4 })));
+    for (const n of this.notes) this.colliders.push({ cyl: true, x: n.pos.x, z: n.pos.z, y0: n.pos.y, y1: n.pos.y + 2, r: 0.18 });
+    this.many('sv-chest', this.finds.map((f, i) => ({ x: f.pos.x, y: f.pos.y, z: f.pos.z, ry: i * 2.1, s: 2.8 })));
+    for (const f of this.finds) this.box(f.pos.x, f.pos.y + 0.4, f.pos.z, 0.5, 0.4, 0.5, 0);
+    // огонёк над закрытым сундуком — видно из темноты
+    const g = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.18), new THREE.MeshBasicMaterial({ color: '#ffd76a' }), this.finds.length);
+    this.finds.forEach((f, i) => g.setMatrixAt(i, new THREE.Matrix4().makeTranslation(f.pos.x, f.pos.y + 1.6, f.pos.z)));
+    this.scene.add(g);
+    this.findGlow = g;
+  }
+
+  // сундук открыт — огонёк гаснет
+  takeFind(f) {
+    f.taken = true;
+    this.findGlow.setMatrixAt(f.idx, new THREE.Matrix4().makeScale(0, 0, 0));
+    this.findGlow.instanceMatrix.needsUpdate = true;
   }
 
   // ——— тросы через провалы: два столба, провисший трос; крюк у начала — и поехали ———
@@ -704,6 +727,7 @@ export class Props {
       l.near.visible = near; l.far.visible = !near;
     }
     for (const s of this.spin) s.obj.rotation[s.axis] = time * s.speed;
+    if (this.findGlow) { this.findGlow.rotation.y = 0; this.findGlow.position.y = Math.sin(time * 2.2) * 0.12; }
   }
 }
 

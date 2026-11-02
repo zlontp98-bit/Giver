@@ -67,7 +67,7 @@ export class Player {
     // силы возвращаются, когда стоишь на земле
     this.restTimer += dt;
     if (this.state === 'ground' && this.restTimer > 0.5) this.stamina = Math.min(100, this.stamina + COST.regen * dt);
-    if (this.state === 'air' && this.peakY - this.pos.y > DEADLY_FALL) this.hurt(1000, 'abyss');
+    if (this.state === 'air' && this.peakY - this.pos.y > DEADLY_FALL && !this.P.waterAt(this.pos.x, this.pos.z)) this.hurt(1000, 'abyss');
     if (this.pos.y < -260) this.hurt(1000, 'abyss');
     this.canGrab = this.grabSpot() !== null;
     this.checkPickups(dt);
@@ -89,8 +89,8 @@ export class Player {
   // ——— земля: разгон и торможение с небольшой инерцией ———
   updateGround(dt, input, move, amount) {
     const p = this.pos;
-    const running = input.run && amount > 0.5 && this.stamina > 1;
-    const speed = running ? RUN : WALK;
+    const running = input.run && amount > 0.5 && this.stamina > 1 && !this.inWater;
+    const speed = (running ? RUN : WALK) * (this.inWater ? 0.5 : 1);
     if (running) this.spend(COST.run * dt);
     const k = Math.min(1, (amount > 0.05 ? 9 : 13) * dt);
     this.vel.x += (move.x * speed * amount - this.vel.x) * k;
@@ -100,8 +100,8 @@ export class Player {
     p.x += this.vel.x * dt; p.z += this.vel.z * dt;
     this.collide();
     const g = this.P.ground(p.x, p.y, p.z, 0.55, 0.7);
-    if (!g || (g.ny < WALKABLE && !g.box)) { this.state = 'air'; this.onBox = null; }
-    else { p.y = g.y; this.onBox = g.box; }
+    if (!g || (g.ny < WALKABLE && !g.box && !g.water)) { this.state = 'air'; this.onBox = null; this.inWater = false; }
+    else { p.y = g.y; this.onBox = g.box; this.inWater = !!g.water; }
     if (this.rope) this.ropePayOut();
     // упёрлись в невысокий уступ (0.5–1.4 м) — перелезаем сами
     if (this.state === 'ground' && amount > 0.5 && Math.hypot(this.vel.x, this.vel.z) < speed * 0.45) this.tryVault(0.5, 1.4, 0.32);
@@ -156,7 +156,7 @@ export class Player {
     // приземление: опора, которую пересекли за этот шаг (до того, как стены вытолкнут)
     if (this.vel.y <= 0) {
       const g = this.P.ground(p.x, p.y, p.z, Math.max(0.05, this.prevY - p.y + 0.05), 0.05);
-      if (g && (g.ny >= WALKABLE || g.box)) { this.land(g); return; }
+      if (g && (g.ny >= WALKABLE || g.box || g.water)) { this.land(g); return; }
     }
     this.collide();
     this.peakY = Math.max(this.peakY, p.y);
@@ -175,6 +175,8 @@ export class Player {
     this.onBox = sup.box;
     this.state = 'ground';
     this.squash = Math.min(1, Math.max(0, fall) / 6);
+    this.inWater = !!sup.water;
+    if (sup.water) { if (fall > 3 && this.ev.splash) this.ev.splash(fall); return; }     // вода гасит любое падение
     if (sup.box && sup.box.soft) {
       // мягкое (гриб, сено) пружинит и гасит удар
       if (fall > 2.5) { this.vel.y = Math.min(8, fall * 0.5); this.state = 'air'; this.peakY = p.y; this.squash = 1; if (this.ev.boing) this.ev.boing(); }
@@ -249,6 +251,18 @@ export class Player {
         if (this.state === 'ground') this.health = Math.min(100, this.health + 20 * dt);
       }
     }
+    // рядом записка или сундук — кнопка «Действие» (что именно — решает main.js)
+    let best = null, bd = 2.3;
+    for (const n of this.props.notes || []) {
+      const d = Math.hypot(n.pos.x - p.x, n.pos.z - p.z);
+      if (d < bd && Math.abs(n.pos.y - p.y) < 2.2) { bd = d; best = { kind: 'note', item: n }; }
+    }
+    for (const f of this.props.finds || []) {
+      if (f.taken) continue;
+      const d = Math.hypot(f.pos.x - p.x, f.pos.z - p.z);
+      if (d < bd && Math.abs(f.pos.y - p.y) < 2.2) { bd = d; best = { kind: 'find', item: f }; }
+    }
+    this.interact = this.state === 'ground' || this.state === 'climb' ? best : null;
     for (const h of this.hints) {
       if (!h.shown && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < h.r && Math.abs(h.pos.y - p.y) < 4) { h.shown = true; this.ev.hint(h.text); }
     }

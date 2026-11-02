@@ -6,8 +6,9 @@ const CELL = 16;
 const key = (x, z) => Math.floor(x / CELL) * 8192 + Math.floor(z / CELL);
 
 export class Physics {
-  constructor(W, colliders = []) {
+  constructor(W, colliders = [], waters = []) {
     this.W = W;
+    this.waters = waters;                       // { x, z, rx, rz, y } — в воде стоим по грудь (на 1 м ниже глади)
     this.grid = new Map();
     for (const c of colliders) this.addCollider(c);
     this._n = new THREE.Vector3();
@@ -83,13 +84,24 @@ export class Physics {
     return bumped;
   }
 
-  // опора под ногами: ищем поверхность от y + up вниз на up + drop. Вернёт { y, ny, box } или null.
+  // над водой ли точка (по горизонтали): вернёт водоём или null
+  waterAt(x, z) {
+    for (const w of this.waters) if (((x - w.x) / w.rx) ** 2 + ((z - w.z) / w.rz) ** 2 < 1) return w;
+    return null;
+  }
+
+  // опора под ногами: ищем поверхность от y + up вниз на up + drop. Вернёт { y, ny, box, water } или null.
   ground(x, y, z, up = 0.5, drop = 0.6) {
     let best = null;
+    const w = this.waters.length ? this.waterAt(x, z) : null;
+    if (w) {
+      const fy = w.y - 1.0;
+      if (fy <= y + up && fy >= y - drop) best = { y: fy, ny: 1, box: null, water: w };
+    }
     const t = this.W.raycast(x, y + up, z, 0, -1, 0, up + drop, 0.03);
     if (t >= 0) {
-      const gy = y + up - t, n = this.W.normal(x, gy + 0.05, z, this._n);
-      best = { y: gy, ny: n.y, box: null };
+      const gy = y + up - t;
+      if (!best || gy > best.y) { const n = this.W.normal(x, gy + 0.05, z, this._n); best = { y: gy, ny: n.y, box: null }; }
     }
     for (const c of this.near(x, z)) {
       if (!c.box) continue;

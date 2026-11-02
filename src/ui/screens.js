@@ -43,6 +43,7 @@ export class Screens {
     // кнопка «Назад» на Android: пауза / продолжить (во время «Замера» — прервать его)
     window.__onBack = () => {
       if (ctx.benchRunning()) { ctx.onBenchAbort(); return true; }
+      if ($('sNote').classList.contains('show')) { $('noteClose').onclick(); return true; }
       if ($('sBench').classList.contains('show')) { $('benchOk').onclick(); return true; }
       if (!game.running && !game.paused) return false;
       this.setPaused(!game.paused);

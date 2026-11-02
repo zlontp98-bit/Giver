@@ -72,6 +72,7 @@ const events = {
     else once('ropeBelay', 'Крюк держит — это страховка. Шагни с края: верёвка поймает. Джойстик вниз — спуск');
   },
   rappelled: () => once('rappel', 'Спустился! Крюк сам отцепился'),
+  splash: (h) => hud.message(h > 12 ? `Плюх! Вода спасла — ${Math.round(h)} м в воду` : 'Плюх!', 2.4),
   camp: (c) => {
     game.checkpoint.copy(c.pos);
     game.campName = c.name;
@@ -102,10 +103,21 @@ const screens = new Screens({
 
 loadModels().then((models) => {
   props = new Props(scene, L, W, models, gfx);
-  physics = new Physics(W, props.colliders);
+  // вода: в заводи и в озере можно брести по грудь, падение в воду не ранит
+  physics = new Physics(W, props.colliders, [
+    { x: L.poolA.x, z: L.poolA.z, rx: 7.5, rz: 6.5, y: -22.2 },
+    { x: L.lake.x, z: L.lake.z, rx: L.lake.rx - 2, rz: L.lake.rz - 2, y: L.lake.y },
+  ]);
   water = new Water(scene, L, W);
   player = new Player(scene, physics, props, events);
   player.anchors = props.anchors;
+  // прогресс: найденные сундуки и прочитанные записки (сохраняются между запусками)
+  const prog = save.data.progress || (save.data.progress = { finds: [], notes: [] });
+  prog.finds = prog.finds || []; prog.notes = prog.notes || [];
+  for (const f of props.finds) if (prog.finds.includes(f.id)) props.takeFind(f);
+  for (const n of props.notes) if (prog.notes.includes(n.id)) n.read = true;
+  game.shardsTotal = props.finds.length;
+  game.shards = props.finds.filter((f) => f.taken).length;
   player.hints = makeHints();
   player.spawn(start);
   player.facing = Math.PI;                                  // лицом к Бездне (на юг)
@@ -120,7 +132,7 @@ loadModels().then((models) => {
   camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
-  window.__giver = { game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp) };
+  window.__giver = { game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact) };
 });
 
 // подсказки по пути (каждая — один раз)
@@ -158,8 +170,33 @@ function reachBottom() {
   game.reachedBottom = true;
   const rec = save.records.layer1, isRecord = !rec || game.elapsed < rec.time;
   if (isRecord) { save.records.layer1 = { time: game.elapsed }; save.write(); }
-  hud.message(`Дно первого яруса за ${fmtTime(game.elapsed)}${isRecord ? ' — рекорд!' : ` (рекорд ${fmtTime(rec.time)})`}. Проход ниже пока закрыт решёткой.`, 6);
+  hud.message(`Дно первого яруса за ${fmtTime(game.elapsed)}${isRecord ? ' — рекорд!' : ` (рекорд ${fmtTime(rec.time)}).`} Проход ниже пока закрыт решёткой.`, 6);
 }
+
+// «Действие»: прочитать записку или открыть сундук
+function doAct(it) {
+  const prog = save.data.progress;
+  if (it.kind === 'note') {
+    const n = it.item;
+    if (!n.read) { n.read = true; if (!prog.notes.includes(n.id)) prog.notes.push(n.id); save.write(); }
+    const read = props.notes.filter((q) => q.read).length;
+    $('noteTitle').textContent = n.title;
+    $('noteTxt').textContent = n.text;
+    $('noteCount').textContent = `Записки экспедиции: ${read} из ${props.notes.length}`;
+    game.running = false;
+    input.reset();
+    hud.screen('sNote', true);
+  } else if (it.kind === 'find' && !it.item.taken) {
+    const f = it.item;
+    props.takeFind(f);
+    if (!prog.finds.includes(f.id)) prog.finds.push(f.id);
+    save.write();
+    game.shards = props.finds.filter((q) => q.taken).length;
+    hud.starPop();
+    hud.message(game.shards === game.shardsTotal ? `${f.name}! Все тайники первого яруса найдены!` : `Находка: ${f.name} (${game.shards} из ${game.shardsTotal})`, 3.5);
+  }
+}
+$('noteClose').onclick = () => { hud.screen('sNote', false); if (!game.paused && !game.won && !player.dead) game.running = true; };
 
 function win() {
   if (game.won) return;
@@ -195,7 +232,7 @@ function endBench(completed) {
 // ——— цикл ———
 let acc = 0, last = performance.now(), clock = 0, courseTime = 0, slowTime = 0, slowCheck = 0;
 const camDir = new THREE.Vector3();
-const NO_BUTTONS = { jump: false, hook: false, grab: false };
+const NO_BUTTONS = { jump: false, hook: false, grab: false, act: false };
 
 function stepOnce(inp) {
   courseTime += STEP;
@@ -229,6 +266,7 @@ function frame(now) {
       first = false;
       acc -= STEP;
     }
+    if (inp.act && player.interact) doAct(player.interact);
     adaptQuality(raw);
     const area = L.areas.find((a) => a.test(player.pos.x, player.pos.y, player.pos.z));
     if (area.id !== game.area) { game.area = area.id; hud.message(`${area.name} · глубина ${Math.max(0, Math.round(-player.pos.y))} м`, 3); }

@@ -69,7 +69,13 @@ export function buildLevel1(W) {
   // глубокая расщелина в восточной стене — от края до глубины 160 м
   const thC = 1.42;
   // (начинается за стеной — полки уступов проходят перед ней, как мостики)
-  W.crevice({ th: thC, rIn: R(thC, -60) + 1, rOut: R(thC, 0) + 38, width: 8, yTop: 10, yBot: -160 });
+  // посередине (на уровне первой полки) щель перегорожена каменной перемычкой: по ней можно зайти вглубь —
+  // в конце щели тайник (этап 3)
+  const crevY = -57.6;
+  W.crevice({ th: thC, rIn: R(thC, -60) + 1, rOut: R(thC, 0) + 38, width: 8, yTop: 10, yBot: crevY });
+  W.crevice({ th: thC, rIn: R(thC, -60) + 1, rOut: R(thC, 0) + 38, width: 8, yTop: crevY - 6, yBot: -160 });
+  const crevRoom = at(thC, R(thC, 0) + 30, crevY + 2.4);
+  W.cave({ x: crevRoom[0], y: crevRoom[1], z: crevRoom[2], rx: 5.5, ry: 3.4, rz: 5.5, floor: crevY });
   // ещё одна узкая щель на юге — её видно со смотровой площадки
   W.crevice({ th: 0.05, rIn: R(0.05, -40) - 4, rOut: R(0.05, 0) + 26, width: 5, yTop: 10, yBot: -95 });
 
@@ -99,6 +105,17 @@ export function buildLevel1(W) {
     yMin: -215, yMax: -112,
   });
   // тайник в стене за лагерем: узкая щель → маленькая пещера
+  // ——— тайники (этап 3) ———
+  // пещера за водопадом: проход из заводи сквозь струю
+  const Rwf = R(thW, -22);
+  W.tunnel([at(thW, Rwf - 2.5, -23.2), at(thW + 0.01, Rwf + 6, -22.6)], { rad: 2.3, axis: 1.2 });
+  const wfRoom = at(thW + 0.02, Rwf + 11, -20.4);
+  W.cave({ x: wfRoom[0], y: wfRoom[1], z: wfRoom[2], rx: 6, ry: 3.4, rz: 5.5, floor: -22.6 });
+  // боковой штрек из зала шахты: короткий ход в каморку артельщиков
+  const mineRoom = at(0.885, Rm + 79, -94.6);
+  W.tunnel([at(0.79, Rm + 66, -97), at(0.86, Rm + 75, -96.6), [mineRoom[0], -96.6, mineRoom[2]]], { rad: 2.2, axis: 1.2 });
+  W.cave({ x: mineRoom[0], y: mineRoom[1], z: mineRoom[2], rx: 5, ry: 3, rz: 4.5, floor: -96.6 });
+
   const thS = -1.36, Rs = R(thS, -118);
   W.tunnel([at(thS, Rs - 7, -120), at(thS, Rs + 4, -120)], { rad: 1.5, axis: 1.0 });
   W.cave({ x: at(thS, Rs + 9, -118)[0], y: -118, z: at(thS, Rs + 9, -118)[2], rx: 7, ry: 3.6, rz: 6, floor: -120 });
@@ -125,8 +142,20 @@ export function buildLevel1(W) {
   W.ledge(scree);
   // озеро на дне под вторым водопадом
   const lake = { x: poolA.x - 22, z: poolA.z + 90, rx: 30, rz: 22 };
-  W.cave({ x: lake.x, y: -PIT_DEPTH - 1, z: lake.z, rx: lake.rx, ry: 7, rz: lake.rz, floor: -PIT_DEPTH - 6, k: 3 });
   lake.y = -PIT_DEPTH - 2.2;
+  // островок в озере (на нём — тайник): дно поднимается пологим холмом чуть выше воды
+  lake.island = { x: lake.x + 9, z: lake.z - 3, r: 7 };
+  {
+    const cy = -PIT_DEPTH - 1, fl0 = -PIT_DEPTH - 6, I = lake.island, m = Math.min(lake.rx, 7, lake.rz);
+    W.add({
+      air: true, k: 3, x0: lake.x - lake.rx, x1: lake.x + lake.rx, z0: lake.z - lake.rz, z1: lake.z + lake.rz, y0: cy - 7, y1: cy + 7,
+      sd: (px, py, pz) => {
+        const d = Math.hypot(px - I.x, pz - I.z) / I.r;
+        const fl = fl0 + (lake.y + 0.7 - fl0) * Math.max(0, 1 - d * d) + 0.3 * W.n2(px / 3, pz / 3);
+        return Math.min((1 - Math.hypot((px - lake.x) / lake.rx, (py - cy) / 7, (pz - lake.z) / lake.rz)) * m, py - fl);
+      },
+    });
+  }
   // закрытый проход на второй ярус: тоннель в северную стену у дна
   const thG = N + 0.12, Rg = R(thG, -203);
   const gate = { inner: at(thG, Rg - 5, -203.5), outer: at(thG, Rg + 20, -203.5), th: thG };
@@ -234,6 +263,39 @@ export function buildLevel1(W) {
     rings.push({ name: 'над осыпью', pos: ringOn(-2.53, -166.5) });                  // с последней полки — к озеру
   }
 
+  // ——— находки в тайниках и записки прошлой экспедиции (этап 3) ———
+  const onGround = (x, z, yTop, drop = 30) => [x, groundY(x, z, yTop, drop), z];
+  const secretPos = at(thS, Rs + 9, -120);
+  const finds = [
+    { id: 'compass', name: 'Старый компас', where: 'за водопадом', pos: onGround(wfRoom[0], wfRoom[2], -19) },
+    { id: 'map', name: 'Карта первого яруса', where: 'в глубине расщелины', pos: onGround(crevRoom[0], crevRoom[2], crevY + 3) },
+    { id: 'lamp', name: 'Шахтёрская лампа', where: 'в каморке у зала шахты', pos: onGround(mineRoom[0], mineRoom[2], -93) },
+    { id: 'badge', name: 'Знак экспедиции', where: 'в тайнике за лагерем', pos: onGround(secretPos[0], secretPos[2], -116) },
+    { id: 'crystal', name: 'Поющий кристалл', where: 'на островке в озере', pos: onGround(lake.island.x, lake.island.z, -200) },
+  ];
+  const hallHouse = village.houses.find((h) => h.hall);
+  const ledgePt = (l, u, inset) => { const th = l.th0 + l.span * u, y = l.y0 + (l.y1 - l.y0) * u, r = R(th, y) - inset; return [Math.sin(th) * r, y, Math.cos(th) * r]; };
+  const B1n = ledgePt(bLedges[0], 0.5, 1.4), mineN = ledgePt(mineIn, 0.25, 1.6);
+  const gdx = gate.outer[0] - gate.inner[0], gdz = gate.outer[2] - gate.inner[2], gl = Math.hypot(gdx, gdz);
+  const notes = [
+    { id: 'n1', at: onGround(hallHouse.x + 4.5, hallHouse.z + 7.5, 10), title: 'Дневник проводника. День 1',
+      text: 'Мы уходим вниз за светом, который горит на дне Бездны. В посёлке говорят: кто спустился, тот уже не тот, что был наверху. Посмотрим. Взяли верёвки, крюки и три недели припасов.' },
+    { id: 'n2', at: onGround(lookout.a[0] + 4, lookout.a[2] - 1, 10), title: 'Табличка у смотровой',
+      text: 'Через перила не лазить. Тропа вниз — по стене, правее площадки. Трос на террасу — только с крюком, и держись крепче.' },
+    { id: 'n3', at: onGround(poolA.x - 10, poolA.z + 1, -10), title: 'Дневник. День 3',
+      text: 'Лагерь у водопада — последнее место, где пахнет домом. Вода в заводи ледяная и чистая. Старый Мирон клянётся, что за струёй водопада кто-то прятал припасы.' },
+    { id: 'n4', at: onGround(B1n[0], B1n[2], B1n[1] + 4), title: 'Нацарапано на камне',
+      text: 'Полки идут зигзагом: спускайся по стене у конца каждой — нижняя всегда заходит дальше. Смелые катаются по тросам между столбами. В глубокой щели рядом — каменная перемычка, по ней можно пройти вглубь.' },
+    { id: 'n5', at: onGround(mineN[0], mineN[2], mineN[1] + 4), title: 'Объявление артели',
+      text: 'Шахта закрыта после обвала. Кристаллы в зале не ломать — в руках они гаснут. Выход — наклонным штреком вниз. Инструмент сдать в каморку у зала.' },
+    { id: 'n6', at: onGround(hall.pos[0] - 4, hall.pos[2] + 4.5, -93), title: 'Дневник. День 9',
+      text: 'В зале кристаллы светятся сами. Ночью они звенят — тихо, как ветер в печной трубе. Если петь в ответ, звон становится громче. Глупости, конечно.' },
+    { id: 'n7', at: onGround(dc[0] + Math.sin(thD) * 6 + 3, dc[2] + Math.cos(thD) * 6, -112), title: 'Дневник. День 14',
+      text: 'Плато пустое. Палатки стоят, будто люди отошли на минуту. В стене за лагерем — узкая щель, оттуда тянет теплом. Дальше вниз — только по полкам или по длинному тросу.' },
+    { id: 'n8', at: onGround(gate.inner[0] - (gdx / gl) * 4, gate.inner[2] - (gdz / gl) * 4, -198), title: 'Последняя запись',
+      text: 'Решётка заперта снизу. Значит, там кто-то есть — или был. Озеро светится по ночам, а на островке что-то блестит. Мы дождёмся, когда проход откроется.' },
+  ];
+
   const areas = [
     { id: 'village', name: 'Посёлок у края', test: (x, y, z) => y > -4 && Math.hypot(x, z) > Rn - 12 },
     { id: 'forest', name: 'Лесная окраина', test: (x, y, z) => y > -45 && z < -60 && Math.abs(x - aX) < 120 },
@@ -250,7 +312,8 @@ export function buildLevel1(W) {
     at(-2.2, R(-2.2, -142) - 4, -142), at(-2.6, R(-2.6, -180) - 5, -180), [lake.x - 30, -200, lake.z - 20], [lake.x, -200, lake.z + 26],
   ];
   return {
-    ledges: { path: pathLedge, ab: abLedge, b: bLedges, mineIn, mineOut, sw: swLedges, e: eLedges, scree }, zips, rings,
+    ledges: { path: pathLedge, ab: abLedge, b: bLedges, mineIn, mineOut, sw: swLedges, e: eLedges, scree }, zips, rings, finds, notes,
+    secrets: { wfRoom, crevRoom, crevY, mineRoom, thC },
     W, Rn, settle, spawn, lookout, river: W.river, rimFall, poolA, streamA, lake, gate, mine, hall, ramp, pillars, village, mineLamps,
     campD: { center: dc, th: thD }, secret: { th: thS, pos: at(thS, Rs + 9, -120) }, areas, bench,
     thW, aX, aZ, topA,

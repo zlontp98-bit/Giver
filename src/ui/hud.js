@@ -14,6 +14,7 @@ export class Hud {
     this.joy = $('joy'); this.knob = $('knob'); this.joyHint = $('joyHint');
     this.btnJump = $('bJump'); this.btnHook = $('bHook'); this.btnRun = $('bRun'); this.hookLbl = $('hookLbl');
     this.btnGrab = $('bGrab'); this.grabLbl = $('grabLbl');
+    this.btnAct = $('bAct'); this.actLbl = $('actLbl');
     this.reticle = $('reticle'); this.retD = $('retD');
     this.track = $('track'); this.me = $('me');
     this.toastTimer = 0;
@@ -68,6 +69,10 @@ export class Hud {
     this.cls('grabReady', this.btnGrab, 'ready', !climbing && player.canGrab);
     this.cls('grabOn', this.btnGrab, 'on', climbing);
     this.set('grabLbl', this.grabLbl, 'textContent', climbing ? 'отпустить' : 'хват');
+    // кнопка «Действие»: появляется у записки и сундука
+    const it = player.interact;
+    this.cls('actShow', this.btnAct, 'show', !!it);
+    if (it) this.set('actLbl', this.actLbl, 'textContent', it.kind === 'note' ? 'читать' : 'открыть');
     // кнопка крюка: светится, когда есть кольцо; синяя, когда висим на верёвке или тросе
     const onRope = !!player.rope || player.state === 'zip' || !!player.hook || (player.state === 'mantle' && (player.mantle.then === 'rope' || player.mantle.then === 'zip'));
     this.cls('ready', this.btnHook, 'ready', !onRope && !!player.target);
