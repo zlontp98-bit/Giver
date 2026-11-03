@@ -85,7 +85,11 @@ const events = {
 let props = null, physics = null, water = null, player = null, motes = null;
 const atmosphere = new Atmosphere(gfx);                 // свет и дымка по глубине
 const fires = [], flies = [];
-const cam = new FollowCamera(camera, { solid: (x, y, z) => (physics ? physics.solid(x, y, z) : W.f(x, y, z) < 0.25) }, start);
+const cam = new FollowCamera(camera, {
+  dist: (x, y, z) => W.f(x, y, z),
+  normal: (x, y, z, out) => W.normal(x, y, z, out),
+  solid: (x, y, z, pad) => (physics ? physics.solid(x, y, z, pad) : W.f(x, y, z) < pad),
+}, start);
 const input = new Input($('layer'), hud);
 const meter = new FpsMeter($('fps'));
 const bench = new Benchmark();
@@ -129,6 +133,7 @@ loadModels().then((models) => {
   hud.setupTrack(-PIT_DEPTH, props.camps.filter((c) => !c.village), areaName);
   setQuality(save.settings.quality || 'low', false);
   setShowFps(!!save.settings.showFps, false);
+  gfx.precompile();                                         // все шейдеры — сразу, пока на экране меню
   camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);

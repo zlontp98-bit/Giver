@@ -30,21 +30,30 @@ export function createGfx() {
   const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.15, 1300);
 
   // небо: от тёплой дымки у горизонта к голубому, солнце со свечением
+  // Небо рисуется первым и без проверки глубины — это просто фон. Сфера всегда внутри дальней границы
+  // камеры (её радиус подстраивается в render), а в глубине Бездны небо плавно уходит в цвет дымки —
+  // раньше у края оно то пропадало, то появлялось (мигало).
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1100, 32, 16), new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
-    uniforms: { top: { value: TOP }, horizon: { value: HORIZON }, sunDir: { value: SUN_DIR }, sunCol: { value: new THREE.Color('#fff1d0') } },
+    side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false, toneMapped: false,
+    uniforms: { top: { value: TOP }, horizon: { value: HORIZON }, sunDir: { value: SUN_DIR }, sunCol: { value: new THREE.Color('#fff1d0') },
+      fogCol: { value: new THREE.Color() }, fogMix: { value: 0 } },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform vec3 top, horizon, sunDir, sunCol; varying vec3 vDir;
+    fragmentShader: `uniform vec3 top, horizon, sunDir, sunCol, fogCol; uniform float fogMix; varying vec3 vDir;
       void main(){ vec3 d = normalize(vDir);
         vec3 col = mix(horizon, top, pow(smoothstep(-0.02, 0.75, d.y), 0.85));
         float s = max(dot(d, sunDir), 0.0);
         col += sunCol * (pow(s, 1400.0) * 6.0 + pow(s, 40.0) * 0.35 + pow(s, 5.0) * 0.12);
+        col = mix(col, fogCol, fogMix);
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }`,
   }));
   sky.frustumCulled = false;
+  sky.renderOrder = -3000;
   scene.add(sky);
+  // видеокарта телефона может «потерять» картинку (нехватка памяти, сворачивание) — тогда восстанавливаем
+  renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); gfx.lost = true; }, false);
+  renderer.domElement.addEventListener('webglcontextrestored', () => { gfx.lost = false; gfx.setQuality(gfx.quality); }, false);
 
   const hemi = new THREE.HemisphereLight('#dbe9ff', '#a38a6c', 1.5);
   scene.add(hemi);
@@ -125,8 +134,20 @@ export function createGfx() {
       sun.position.set(x, y, z).addScaledVector(SUN_DIR, 200);
       sun.target.updateMatrixWorld();
     },
+    // скомпилировать все шейдеры заранее (иначе первый показ новой модели — заминка на телефоне)
+    precompile() {
+      const hidden = [];
+      scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+      try { renderer.compile(scene, camera); } catch (e) { /* не страшно — скомпилируется при показе */ }
+      for (const o of hidden) o.visible = false;
+    },
     render(dt) {
+      if (gfx.lost) return;
       sky.position.copy(camera.position);
+      sky.scale.setScalar(Math.min(1, (camera.far * 0.9) / 1100));
+      sky.material.uniforms.fogCol.value.copy(scene.fog.color);
+      const y = camera.position.y;
+      sky.material.uniforms.fogMix.value = Math.min(1, Math.max(0, (-6 - y) / 64));
       const q = QUALITY[gfx.quality];
       // тени: когда «солнце» сдвинулось за героем и раз в 4 кадра (для качающихся досок и лифта)
       if (q.shadows && (gfx.shadowDirty || ++gfx.shadowTick % 4 === 0)) { renderer.shadowMap.needsUpdate = true; gfx.shadowDirty = false; }

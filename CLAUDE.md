@@ -10,7 +10,7 @@
 
 - `main` — РАБОЧАЯ версия (сейчас 0.4) → приложение «Giver» (`com.giver.game`), релиз `latest`, `Giver.apk`.
   **Без согласия пользователя в main не пушить.**
-- `dev` — разработка 0.5 (сейчас 0.5-a3) → отдельное приложение «Giver Тест» (`com.giver.game.test`, свой значок
+- `dev` — разработка 0.5 (сейчас 0.5-a3.1) → отдельное приложение «Giver Тест» (`com.giver.game.test`, свой значок
   с меткой «Т»), ставится РЯДОМ с рабочим, сохранения отдельные. Релиз `test` (prerelease), файл `GiverTest.apk`:
   `https://github.com/zlontp98-bit/Giver/releases/download/test/GiverTest.apk`. Сборка — при push в `dev`
   (`.github/workflows/build-apk.yml`: ветка main → `latest`, любая другая → `test`, флаг gradle `-PgiverTest`).
@@ -165,6 +165,13 @@ experiments/      пробы графики (graphics2, camp-demo) — оста�
   records: { layer1: { time } (0.5), abyss: { time, shards } (0.4), mountain: { time, stars } }, progress: null
   (заполнится в этапах 0.5), bench: [последние 8 «Замеров»] }`. Плоские записи 0.2–0.4 переводятся
   автоматически (`migrate()`). Рекорды 0.4 на старте 0.5 не показываются.
+- **Камера не должна заходить в скалу** (пользователь видел «экран на секунду чёрный»): game/camera.js — луч
+  от героя по SDF держит 0.45 м до камня (`freeDistance`), точку вращения отодвигает от скалы, плавное движение
+  только по воздуху (`safe`), при переносе героя (> 6 м за кадр) камера переносится сразу. Проверка — кадры,
+  где `W.f(camera.position) < 0` (в 0.5-a3.1: 0 в шахте, тайниках, на стене, тросах, верёвке, при переносе).
+- **Небо** рисуется первым без проверки глубины, сфера всегда внутри `camera.far`, в глубине плавно уходит
+  в цвет дымки (`fogMix`) — раньше у посёлка оно мигало (сфера 1100 м то влезала в дальность камеры, то нет).
+- При старте все шейдеры компилируются заранее (`gfx.precompile()`); потеря WebGL-контекста восстанавливается.
 - Эффекты (postprocessing): на экран рисует ПОСЛЕДНИЙ добавленный слой — лишние слои убирать
   (`configureComposer`), а не выключать `enabled=false`, иначе чёрный/пустой экран.
 - Instanced-цвет в фрагментном шейдере three.js виден как `USE_COLOR` (не `USE_INSTANCING_COLOR`).
@@ -200,7 +207,7 @@ experiments/      пробы графики (graphics2, camp-demo) — оста�
   (`run_workflow`, `build-apk.yml`, ref = ветка).
 - Скачать APK через curl, сверить sha256 с digest релиза и отправить файлом (SendUserFile).
 - Перед сборкой поднимать `versionCode`/`versionName` в `android/app/build.gradle` (main 4 / 0.4,
-  dev 8 / 0.5-a3; дальше 0.5-a4…). Подпись — `android/app/debug.keystore` (пароль android), ставится поверх.
+  dev 9 / 0.5-a3.1; дальше 0.5-a4…). Подпись — `android/app/debug.keystore` (пароль android), ставится поверх.
 
 ## Как проверять
 
