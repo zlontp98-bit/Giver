@@ -10,7 +10,7 @@
 
 - `main` — РАБОЧАЯ версия (сейчас 0.4) → приложение «Giver» (`com.giver.game`), релиз `latest`, `Giver.apk`.
   **Без согласия пользователя в main не пушить.**
-- `dev` — разработка 0.5 (сейчас демо 0.5-d1) → отдельное приложение «Giver Тест» (`com.giver.game.test`, свой значок
+- `dev` — разработка 0.5 (сейчас демо 0.5-d2) → отдельное приложение «Giver Тест» (`com.giver.game.test`, свой значок
   с меткой «Т»), ставится РЯДОМ с рабочим, сохранения отдельные. Релиз `test` (prerelease), файл `GiverTest.apk`:
   `https://github.com/zlontp98-bit/Giver/releases/download/test/GiverTest.apk`. Сборка — при push в `dev`
   (`.github/workflows/build-apk.yml`: ветка main → `latest`, любая другая → `test`, флаг gradle `-PgiverTest`).
@@ -34,6 +34,17 @@
 - **Старые проверки** (весь ярус) ставят `window.__giverFull = true` в addInitScript — тогда демо выключено.
   Проверка демо — `node tools/demo.cjs` (бот: паркур, кольцо и раскачка, ниша, спуск по стене, кирка в рюкзаке,
   завал, компас, граница глубины, тропа, перезапуск). gallery/perf/shots снимают демо.
+- **Графика 0.5-d2**: природа — Quaternius (`q-*.glb` + общие текстуры `q-*` в assets; подготовка:
+  `node tools/simplify-quaternius.mjs <kit/glTF> <tmp>` → `python3 tools/import-quaternius.py <tmp>`; кора упрощена,
+  листва прорежена `THIN`, дальние копии `_far`). В props.js: `QUATERNIUS` (вид из запекания → модель), `SUBST`
+  (замена моделей Kenney в посёлке, `props.model(name)`), `Q_NEAR` (мелочь только рядом), три ступени деревьев
+  (подробные < 48 м · `lodScale`, `_far` < 140 м, кроны). Загрузчик q- в render/models.js (`loadQ`, нормали кроны
+  «шаром», `fitHeight` — размер как у прежней модели Kenney).
+  Скалы/трава — `STYLIZED` в terrain.js: без фото-текстур, слои породы, мох, пятна травы. «Дымка глубины» —
+  подмена `THREE.ShaderChunk.fog_*` в gfx.js (по высоте точки мира). Густая трава — `world/grassfield.js`
+  (плитки 8 м вокруг героя, свой простой шейдер, тень от скал лучом). Водопад — 2 слоя, полосы пены.
+  Цена (SwiftShader, «Низкая»): посёлок ~85 мс, смотровая ~185, лес ~230 (было 52/115/84 до графики) —
+  **на телефоне не проверено**, ждём «Подробный замер».
 - Графика: набор Quaternius **Stylized Nature MegaKit** (Standard, CC0, 68 моделей glTF, текстуры с альфой),
   скачан с itch.io через Playwright (`a.buy_btn` → «No thanks» → `a.download_btn`); itch даёт 429 при частых запросах.
 
@@ -276,7 +287,7 @@ experiments/      пробы графики (graphics2, camp-demo) — оста�
   (`run_workflow`, `build-apk.yml`, ref = ветка).
 - Скачать APK через curl, сверить sha256 с digest релиза и отправить файлом (SendUserFile).
 - Перед сборкой поднимать `versionCode`/`versionName` в `android/app/build.gradle` (main 4 / 0.4,
-  dev 14 / 0.5-d1; дальше 0.5-d2…). Подпись — `android/app/debug.keystore` (пароль android), ставится поверх.
+  dev 15 / 0.5-d2; дальше 0.5-d3…). Подпись — `android/app/debug.keystore` (пароль android), ставится поверх.
 
 ## Как проверять
 
