@@ -30,7 +30,7 @@ export class HookMethods {
       if (score < bestScore && this.P.clearLine(chest, a.pos)) { bestScore = score; best = a; }
     }
     if (best) { this.target = best; return best; }
-    const hit = this.P.raycast(_q.copy(chest).addScaledVector(aim, 0.35), aim, HOOK_RANGE, 0.55);   // «толстый» луч — легче попасть
+    const hit = this.P.raycast(_q.copy(chest).addScaledVector(aim, 0.35), aim, hookRange(this), 0.55);   // «толстый» луч — легче попасть
     if (hit && hit.point.y > this.pos.y - 2.5) {
       const T = this.freeTarget;
       T.pos.copy(hit.point).addScaledVector(hit.normal, 0.06);
@@ -38,7 +38,7 @@ export class HookMethods {
       this.target = T;
       return T;
     }
-    this.aimPoint.copy(chest).addScaledVector(aim, HOOK_RANGE);
+    this.aimPoint.copy(chest).addScaledVector(aim, hookRange(this));
     this.target = null;
     return null;
   }
@@ -47,7 +47,7 @@ export class HookMethods {
     if (this.rope || this.zip) { this.letGoRope(false); return; }     // второе нажатие — отцепиться
     if (this.hook || this.state === 'mantle' || this.dead) return;
     const t = this.target;
-    if (!t) { this.ev.message(`Наведи прицел на скалу — крюк долетает на ${HOOK_RANGE} м`); return; }
+    if (!t) { this.ev.message(`Наведи прицел на скалу — крюк долетает на ${hookRange(this)} м`); return; }
     const anchor = t.free ? { kind: 'rock', pos: t.pos.clone(), n: t.n.clone() } : t;
     const dist = _c.copy(this.pos).setY(this.pos.y + 1.5).distanceTo(anchor.pos);
     this.hook = { anchor, t: 0, dur: Math.max(0.12, dist / 45) };
@@ -68,7 +68,7 @@ export class HookMethods {
     }
     const hands = _c.copy(this.pos).setY(this.pos.y + HANG);
     const dist = hands.distanceTo(a.pos);
-    if (dist > ROPE_MAX) { this.ev.message('Слишком далеко — верёвки не хватит'); return; }
+    if (dist > ropeMax(this)) { this.ev.message('Слишком далеко — верёвки не хватит'); return; }
     this.rope = { anchor: a, len: Math.max(ROPE_MIN, dist) };
     if (this.state === 'air') this.state = 'rope';                  // в полёте — сразу повис
     if (this.ev.hooked) this.ev.hooked(this.state, a);
@@ -89,8 +89,8 @@ export class HookMethods {
     const Rp = this.rope;
     if (!Rp) return;
     const d = _c.copy(this.pos).setY(this.pos.y + HANG).distanceTo(Rp.anchor.pos);
-    if (d > ROPE_MAX + 1) { this.rope = null; this.ev.message('Верёвка кончилась — крюк отцепился'); return; }
-    Rp.len = Math.min(ROPE_MAX, Math.max(ROPE_MIN, d));
+    if (d > ropeMax(this) + 1) { this.rope = null; this.ev.message('Верёвка кончилась — крюк отцепился'); return; }
+    Rp.len = Math.min(ropeMax(this), Math.max(ROPE_MIN, d));
   }
 
   // в падении с верёвкой: натянулась — повис (маятник)
@@ -123,8 +123,9 @@ export class HookMethods {
   updateRope(dt, input) {
     const p = this.pos, Rp = this.rope, A = Rp.anchor.pos;
     // джойстик вниз — травить верёвку (спускаться), вверх — подтягиваться (тратит силы)
-    if (input.my < -0.2) Rp.len = Math.min(ROPE_MAX, Rp.len + ROPE_DOWN * Math.min(1, -input.my * 1.3) * dt);
-    else if (input.my > 0.2 && this.stamina > 0) { Rp.len = Math.max(ROPE_MIN, Rp.len - ROPE_UP * input.my * dt); this.spend(COST.ropeUp * dt); }
+    const kUp = this.gear && this.gear.grapple ? 3 : 1;           // крюк-кошка: вверх втрое быстрее, в 2.5 раза легче
+    if (input.my < -0.2) Rp.len = Math.min(ropeMax(this), Rp.len + ROPE_DOWN * Math.min(1, -input.my * 1.3) * dt);
+    else if (input.my > 0.2 && this.stamina > 0) { Rp.len = Math.max(ROPE_MIN, Rp.len - ROPE_UP * kUp * input.my * dt); this.spend((COST.ropeUp / (kUp > 1 ? 2.5 : 1)) * dt); }
     this.vel.y -= G * dt;
     // раскачка: джойстик вбок толкает вдоль стороны камеры (сильнее, когда верёвка длинная)
     this.vel.addScaledVector(this.right, input.mx * (6 + Math.min(6, Rp.len * 0.15)) * dt);
@@ -171,5 +172,9 @@ export class HookMethods {
     else if (input.jump) this.letGoRope(true);
   }
 }
+
+// снаряжение меняет возможности: трос — длиннее верёвка, крюк-кошка — дальше бросок и быстрый подъём
+function ropeMax(h) { return h.gear && h.gear.cable ? 120 : ROPE_MAX; }
+function hookRange(h) { return h.gear && h.gear.grapple ? 36 : HOOK_RANGE; }
 
 const _c = new THREE.Vector3(), _d = new THREE.Vector3(), _q = new THREE.Vector3(), _a = new THREE.Vector3();

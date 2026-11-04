@@ -86,17 +86,24 @@ const path = require('path');
   const atCamp = await st();
   ok(atCamp.pos[1] < -15 && atCamp.pos[1] > -35, 'после падения — у лагеря на террасе: ' + JSON.stringify(atCamp));
 
-  // 4. ягоды: устал — съел — силы вернулись
+  // 4. ягоды: собрать «Действием» в рюкзак, устал — съел из рюкзака — силы вернулись
   const berry = await page.evaluate(async () => {
-    const g = window.__giver, P = g.player, b = g.props.bushes.find((b) => !b.taken);
+    const g = window.__giver, P = g.player, V = P.pos.constructor, b = g.ents.byKind('res').find((e) => e.type === 'berry' && !e.taken);
     if (!b) return null;
-    P.spawn(new P.pos.constructor(b.x + 2.5, b.y + 1, b.z));
+    let label = null;
+    for (const [dx, dz] of [[1.2, 0], [-1.2, 0], [0, 1.2], [0, -1.2]]) {
+      P.spawn(b.pos.clone().add(new V(dx, 1, dz)));
+      await new Promise((r) => setTimeout(r, 300));
+      if (P.interact && P.interact.item === b) { label = P.interact.label; g.act(); break; }
+    }
+    const got = g.inv.count('berry');
     P.stamina = 20;
+    g.openBag();
+    const btn = document.querySelector('#bagGrid [data-eat="berry"]');
+    btn && btn.click();
+    document.getElementById('bagClose').click();
     await new Promise((r) => setTimeout(r, 200));
-    const st0 = Math.round(P.stamina);
-    P.pos.x = b.x + 0.8;
-    await new Promise((r) => setTimeout(r, 400));
-    return { before: st0, st: Math.round(P.stamina), taken: !!b.taken };
+    return { label, got, left: g.inv.count('berry'), st: Math.round(P.stamina) };
   });
   ok(berry && berry.st > 50, 'ягоды вернули силы: ' + JSON.stringify(berry));
 

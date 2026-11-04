@@ -15,6 +15,7 @@ import { LEVELS, START_LEVEL } from './world/levels.js';
 import { Structures } from './world/structures.js';
 import { Entities } from './game/entities.js';
 import { stateFromSave } from './game/state.js';
+import { Inventory, ITEMS, GEAR, RECIPES, BAG_SLOTS } from './game/inventory.js';
 import { buildTerrain, worldMaterial } from './world/terrain.js';
 import { Props } from './world/props.js';
 import { Water } from './world/water.js';
@@ -53,6 +54,7 @@ mark('план мира');
 const state = stateFromSave(save.data, LV.id);
 save.data.state = state;
 const ents = new Entities(state);
+const inv = new Inventory(state);
 let structures = null;
 gfx.materialFactory = worldMaterial;
 const terrain = buildTerrain(worldMaterial(0));
@@ -141,12 +143,19 @@ loadModels().then((models) => {
   // сущности уровня: записки и тайники (их картинку делает props, состояние — здесь)
   for (const n of props.notes) ents.add({ id: `note:${n.id}`, kind: 'note', pos: n.pos, title: n.title, text: n.text, read: false });
   for (const f of props.finds) ents.add({ id: `find:${f.id}`, kind: 'find', pos: f.pos, name: f.name, where: f.where, taken: false, idx: f.idx }, { sync: (e) => { if (e.taken) props.hideFindGlow(e.idx); } });
+  // ресурсы и места крафта — тоже сущности (их картинки делает props)
+  for (const { r, view } of props.resList) ents.add({ id: r.id, kind: 'res', type: r.type, rich: !!r.rich, pos: new THREE.Vector3(...r.pos), taken: false }, view);
+  for (const st of L.stations) ents.add({ id: st.id, kind: 'station', type: st.type, name: st.name, pos: new THREE.Vector3(...st.pos) });
+  props.physics = physics;
+  for (const { r, view } of props.rubbleList) ents.add({ id: r.id, kind: 'rubble', pos: new THREE.Vector3(...r.pos), reach: 1.2, cleared: false }, view);
+  player.gear = state.gear;
   structures = new Structures(scene, W, physics, ents);
   ents.restoreDynamic((e) => (e.kind === 'structure' ? structures.view() : null));
   player.ents = ents;
   player.interactTest = (e) => !!ACTIONS[e.kind] && ACTIONS[e.kind].can(e);
   player.labelOf = (e) => ACTIONS[e.kind].label(e);
   countFinds();
+  bagPop();
   player.hints = makeHints();
   player.spawn(start);
   player.facing = Math.PI;                                  // лицом к Бездне (на юг)
@@ -166,7 +175,7 @@ loadModels().then((models) => {
   camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
-  window.__giver = { THREE, terrain, state, ents, structures, game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact) };
+  window.__giver = { THREE, terrain, state, ents, structures, game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact), inv, openBag, openCraft };
 });
 
 // подсказки по пути (каждая — один раз)
@@ -240,6 +249,102 @@ const ACTIONS = {
     },
   },
 };
+// ——— ресурсы: сколько даёт, через сколько вырастет снова (с игрового времени), надпись на кнопке ———
+const RES = {
+  wood: { n: 2, back: 300, label: 'собрать дерево' },
+  stone: { n: 2, back: 300, label: 'взять камень' },
+  ore: { n: 2, back: 900, label: 'добыть руду', need: 'pickaxe' },
+  berry: { n: 3, back: 400, label: 'собрать ягоды' },
+  mushroom: { n: 2, back: 400, label: 'собрать грибы' },
+  glowshroom: { n: 1, back: 600, label: 'сорвать светогриб' },
+};
+ACTIONS.res = {
+  label: (e) => (RES[e.type].need && !state.gear[RES[e.type].need] ? 'нужна кирка' : RES[e.type].label),
+  can: (e) => !e.taken,
+  run(e) {
+    const R = RES[e.type];
+    if (R.need && !state.gear[R.need]) { hud.message('Руду не отбить руками — нужна кирка (верстак: 3 дерева + 2 камня)', 3); return; }
+    const got = inv.add(e.type, R.n * (e.rich ? 2 : 1));
+    if (!got) { hud.message('Рюкзак полон — съешь что-нибудь или сделай вещь у верстака', 3); return; }
+    ents.set(e, { taken: true, back: state.time + R.back });
+    save.write();
+    bagPop();
+    hud.message(`+${got} ${ITEMS[e.type].name}${e.rich ? ' (богатая жила!)' : ''} · рюкзак ${inv.slotsUsed()}/${BAG_SLOTS}`, 2);
+  },
+};
+ACTIONS.rubble = {
+  label: () => (state.gear.pickaxe ? 'разбить завал' : 'завал: нужна кирка'), can: (e) => !e.cleared,
+  run(e) {
+    if (!state.gear.pickaxe) { hud.message('Камни не сдвинуть руками — нужна кирка', 3); return; }
+    ents.set(e, { cleared: true });
+    save.write();
+    hud.message('Завал разобран — проход в каморку открыт', 3);
+  },
+};
+ACTIONS.station = {
+  label: (e) => (e.type === 'workbench' ? 'верстак' : 'печь'), can: () => true,
+  run(e) { openCraft(e.type); },
+};
+// вырасти снова (раз в секунду)
+let regrowTick = 0;
+function regrow(dt) {
+  state.time += dt;
+  if ((regrowTick += dt) < 1) return;
+  regrowTick = 0;
+  for (const e of ents.byKind('res')) if (e.taken && e.back <= state.time) ents.set(e, { taken: false });
+}
+
+// ——— рюкзак и крафт (экраны; игра на паузе, пока открыты) ———
+function bagPop() { $('bagN').textContent = `рюкзак ${inv.slotsUsed()}/${BAG_SLOTS}`; $('bBag').classList.remove('pop'); void $('bBag').offsetWidth; $('bBag').classList.add('pop'); }
+function pauseFor(id) { game.running = false; input.reset(); hud.screen(id, true); }
+function resumeFrom(id) { hud.screen(id, false); if (!game.paused && !game.won && !player.dead) game.running = true; bagPop(); }
+function openBag() {
+  const grid = Object.entries(state.inv).map(([id, n]) => {
+    const it = ITEMS[id], eat = it.eat ? `<button type="button" data-eat="${id}">съесть</button>` : '';
+    return `<div><b>${n}</b>${it.name}${eat}</div>`;
+  });
+  for (let i = grid.length; i < BAG_SLOTS; i++) grid.push('<div></div>');
+  $('bagGrid').innerHTML = grid.join('');
+  const g = Object.keys(state.gear).map((id) => `<li><b>${GEAR[id].name}</b> — ${GEAR[id].what}</li>`);
+  $('bagGear').innerHTML = g.join('') || '<li>пока ничего — сделай у верстака кирку</li>';
+  $('bagGrid').querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
+  if (!$('sBag').classList.contains('show')) pauseFor('sBag');
+}
+function eat(id) {
+  if (!inv.take(id, 1)) return;
+  const e = ITEMS[id].eat;
+  if (e.stamina) player.stamina = Math.min(100, player.stamina + e.stamina);
+  if (e.health) player.health = Math.min(100, player.health + e.health);
+  save.write();
+  openBag();
+}
+let craftAt = 'workbench';
+function openCraft(at) {
+  craftAt = at;
+  $('craftTitle').textContent = at === 'workbench' ? 'Верстак' : 'Печь';
+  $('craftHint').textContent = at === 'workbench' ? 'Инструменты дают новые возможности: руда, крутые нависания, длинные спуски, далёкий крюк.' : 'Плавка руды и еда в дорогу.';
+  const rows = RECIPES.filter((r) => r.at === at).map((r) => {
+    const c = inv.canCraft(r), need = r.need, alt = r.alt;
+    const fmt = (nd) => Object.entries(nd).map(([id, n]) => `${ITEMS[id].name} ${Math.min(inv.count(id), n)}/${n}`).join(' · ');
+    const what = r.gear ? GEAR[r.gear].what : r.give.stew ? 'силы до конца и +30 здоровья' : 'для снаряжения';
+    return `<li><span>${r.name}<small>${fmt(need)}${alt ? ' (или ' + fmt(alt) + ')' : ''} — ${what}</small></span>` +
+      `<button type="button" data-r="${r.id}" ${c.ok ? '' : 'disabled'}>${c.ok ? 'сделать' : c.why}</button></li>`;
+  });
+  $('craftList').innerHTML = rows.join('');
+  $('craftList').querySelectorAll('[data-r]').forEach((b) => { b.onclick = () => craft(b.dataset.r); });
+  if (!$('sCraft').classList.contains('show')) pauseFor('sCraft');
+}
+function craft(id) {
+  const r = RECIPES.find((q) => q.id === id), res = inv.craft(r);
+  if (!res.ok) return;
+  save.write();
+  hud.message(r.gear ? `${r.name}: ${GEAR[r.gear].what}` : `Готово: ${r.name}`, 4);
+  openCraft(craftAt);
+}
+$('bBag').onclick = () => { if (game.running) openBag(); };
+$('bagClose').onclick = () => resumeFrom('sBag');
+$('craftClose').onclick = () => resumeFrom('sCraft');
+
 function doAct(it) {
   const a = ACTIONS[it.kind];
   if (a && a.can(it.item)) a.run(it.item);
@@ -355,6 +460,7 @@ function frame(now) {
       acc -= STEP;
     }
     if (inp.act && player.interact) doAct(player.interact);
+    regrow(dt);
     adaptQuality(raw);
     const area = L.areas.find((a) => a.test(player.pos.x, player.pos.y, player.pos.z));
     if (area.id !== game.area) { game.area = area.id; hud.message(`${area.name} · глубина ${Math.max(0, Math.round(-player.pos.y))} м`, 3); }

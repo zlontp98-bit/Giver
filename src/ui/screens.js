@@ -49,6 +49,8 @@ export class Screens {
     window.__onBack = () => {
       if (ctx.benchRunning()) { ctx.onBenchAbort(); return true; }
       if ($('sNote').classList.contains('show')) { $('noteClose').onclick(); return true; }
+      if ($('sBag').classList.contains('show')) { $('bagClose').onclick(); return true; }
+      if ($('sCraft').classList.contains('show')) { $('craftClose').onclick(); return true; }
       if ($('sBench').classList.contains('show')) { $('benchOk').onclick(); return true; }
       if (!game.running && !game.paused) return false;
       this.setPaused(!game.paused);

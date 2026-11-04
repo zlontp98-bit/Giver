@@ -6,7 +6,7 @@
 // на юго-востоке — Заброшенная шахта, на западе — Затерянный лагерь на плато, на северо-западе — Большой
 // спуск к озеру на дне и закрытому проходу на второй ярус.
 import { PIT_DEPTH } from './sdf.js';
-import { clamp } from '../core/noise.js';
+import { clamp, makeRng } from '../core/noise.js';
 
 export const LEVEL_SEED = 20261103;
 
@@ -277,6 +277,94 @@ export function buildLevel1(W) {
   const ledgePt = (l, u, inset) => { const th = l.th0 + l.span * u, y = l.y0 + (l.y1 - l.y0) * u, r = R(th, y) - inset; return [Math.sin(th) * r, y, Math.cos(th) * r]; };
   const B1n = ledgePt(bLedges[0], 0.5, 1.4), mineN = ledgePt(mineIn, 0.25, 1.6);
   const gdx = gate.outer[0] - gate.inner[0], gdz = gate.outer[2] - gate.inner[2], gl = Math.hypot(gdx, gdz);
+  // ——— ресурсы (этап 4): у каждой области свои — дерево в лесу и в лагере, камень на уступах и осыпи,
+  // руда только в шахте (и немного — в глубине расщелины: опасно, зато богато), грибы в лесу, светогрибы на дне
+  const resources = [];
+  {
+    const rng = makeRng(4404);
+    const okGround = (x, z, yTop, drop = 30) => {
+      const y = groundY(x, z, yTop, drop);
+      if (y <= yTop - drop + 0.01 || W.f(x, y + 1.2, z) < 0.6) return null;     // нет опоры или тесно
+      return [x, y, z];
+    };
+    const push = (type, n, pick, yTop, drop, near = 0) => {
+      for (let tries = 0, k = 0; k < n && tries < n * 30; tries++) {
+        const [x, z] = pick();
+        const p = okGround(x, z, yTop, drop);
+        if (!p) continue;
+        if (resources.some((r) => Math.hypot(r.pos[0] - p[0], r.pos[2] - p[2]) < 3)) continue;
+        if (Math.hypot(p[0] - poolA.x, p[2] - poolA.z) < 10) continue;
+        resources.push({ id: `res:${type}${resources.length}`, type, pos: p, rich: near });
+        k++;
+      }
+    };
+    const ell = (cx, cz, rx, rz) => () => { const a = rng() * Math.PI * 2, k = Math.sqrt(rng()); return [cx + Math.cos(a) * rx * k, cz + Math.sin(a) * rz * k]; };
+    // дерево: лесная терраса, лес у посёлка, сухостой у лагеря
+    push('wood', 14, ell(aX, aZ, 90, 46), -12, 40);
+    push('wood', 5, () => { const a = N + (rng() - 0.5) * 1.2, r = Rn + 25 + rng() * 40; return [Math.sin(a) * r, Math.cos(a) * r]; }, 20, 30);
+    push('wood', 5, ell(dc[0], dc[2], 34, 34), -100, 40);
+    // камень: полки уступов, площадка шахты, осыпь
+    for (const l of [...bLedges, abLedge]) for (const u of [0.3, 0.7]) {
+      const th = l.th0 + l.span * u, y = l.y0 + (l.y1 - l.y0) * u, r = R(th, y) - 1.8;
+      const p = okGround(Math.sin(th) * r, Math.cos(th) * r, y + 4, 8);
+      if (p) resources.push({ id: `res:stone${resources.length}`, type: 'stone', pos: p });
+    }
+    for (const u of [0.2, 0.45, 0.7, 0.9]) {
+      const th = scree.th0 + scree.span * u, y = scree.y0 + (scree.y1 - scree.y0) * u, r = R(th, y) - 3;
+      const p = okGround(Math.sin(th) * r, Math.cos(th) * r, y + 5, 10);
+      if (p) resources.push({ id: `res:stone${resources.length}`, type: 'stone', pos: p });
+    }
+    // руда: вдоль тоннелей шахты у стен, в зале, в каморке; две жилы — в глубине расщелины
+    for (const path of [mine, ramp]) for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1], b = path[i], dx = b[0] - a[0], dz = b[2] - a[2], d = Math.hypot(dx, dz);
+      for (const t of [0.35, 0.8]) {
+        const side = (i + (t > 0.5 ? 1 : 0)) % 2 ? 1 : -1;
+        const x = a[0] + dx * t + (-dz / d) * 2.3 * side, z = a[2] + dz * t + (dx / d) * 2.3 * side;
+        const p = okGround(x, z, a[1] + (b[1] - a[1]) * t + 2.5, 6);
+        if (p) resources.push({ id: `res:ore${resources.length}`, type: 'ore', pos: p });
+      }
+    }
+    for (const k of [0, 1, 2, 3]) {
+      const a = k * 1.57 + 0.4, x = hall.pos[0] + Math.cos(a) * hall.rx * 0.7, z = hall.pos[2] + Math.sin(a) * hall.rz * 0.7;
+      const p = okGround(x, z, hall.floor + 3, 6);
+      if (p) resources.push({ id: `res:ore${resources.length}`, type: 'ore', pos: p });
+    }
+    for (const [dx, dz] of [[2.5, 1], [-2, -1.5]]) {
+      const p = okGround(mineRoom[0] + dx, mineRoom[2] + dz, -94, 6);
+      if (p) resources.push({ id: `res:ore${resources.length}`, type: 'ore', pos: p, rich: 1 });
+    }
+    for (const off of [18, 24]) {
+      const p0 = at(thC, R(thC, -60) + off, crevY);
+      const p = okGround(p0[0], p0[2], crevY + 3, 6);
+      if (p) resources.push({ id: `res:ore${resources.length}`, type: 'ore', pos: p, rich: 1 });
+    }
+    // грибы: лес (обычные), дно и нижние полки (светогрибы — для похлёбки)
+    push('mushroom', 8, ell(aX - 10, aZ - 10, 80, 40), -12, 40);
+    push('glowshroom', 6, () => { const a = rng() * Math.PI * 2, r = 30 + rng() * 120; return [Math.sin(a) * r, Math.cos(a) * r]; }, -190, 25);
+    for (const l of eLedges.slice(1, 4)) {
+      const u = 0.5, th = l.th0 + l.span * u, y = l.y0 + (l.y1 - l.y0) * u, r = R(th, y) - 2;
+      const p = okGround(Math.sin(th) * r, Math.cos(th) * r, y + 4, 8);
+      if (p) resources.push({ id: `res:glowshroom${resources.length}`, type: 'glowshroom', pos: p });
+    }
+  }
+  // завал в штреке к каморке у зала шахты — разобрать можно только киркой
+  const rubble = [];
+  {
+    const a = at(0.79, Rm + 66, -97), b = at(0.86, Rm + 75, -96.6);
+    const m = [(a[0] + b[0]) / 2, groundY((a[0] + b[0]) / 2, (a[2] + b[2]) / 2, -95.5, 6), (a[2] + b[2]) / 2];
+    rubble.push({ id: 'rubble:mine', pos: m, rot: Math.atan2(b[0] - a[0], b[2] - a[2]) });
+  }
+  // верстак и печь: в посёлке у Дома экспедиций; верстак ещё в зале шахты, печь — у Затерянного лагеря
+  const stations = [];
+  {
+    const h = village.houses.find((q) => q.hall);
+    stations.push({ id: 'st:bench1', type: 'workbench', pos: [h.x - 6, groundY(h.x - 6, h.z + 9, 10), h.z + 9], name: 'верстак в посёлке' });
+    stations.push({ id: 'st:furnace1', type: 'furnace', pos: [h.x + 9, groundY(h.x + 9, h.z + 9.5, 10), h.z + 9.5], name: 'печь в посёлке' });
+    stations.push({ id: 'st:bench2', type: 'workbench', pos: [hall.pos[0] - 5, hall.floor, hall.pos[2] - 3], name: 'верстак в шахте', model: false });
+    const fx = dc[0] + Math.sin(thD) * 8, fz = dc[2] + Math.cos(thD) * 8;
+    stations.push({ id: 'st:furnace2', type: 'furnace', pos: [fx, groundY(fx, fz, -100, 40), fz], name: 'печь у лагеря' });
+  }
+
   const notes = [
     { id: 'n1', at: onGround(hallHouse.x + 4.5, hallHouse.z + 7.5, 10), title: 'Дневник проводника. День 1',
       text: 'Мы уходим вниз за светом, который горит на дне Бездны. В посёлке говорят: кто спустился, тот уже не тот, что был наверху. Посмотрим. Взяли верёвки, крюки и три недели припасов.' },
@@ -313,7 +401,7 @@ export function buildLevel1(W) {
   ];
   return {
     ledges: { path: pathLedge, ab: abLedge, b: bLedges, mineIn, mineOut, sw: swLedges, e: eLedges, scree }, zips, rings, finds, notes,
-    secrets: { wfRoom, crevRoom, crevY, mineRoom, thC },
+    secrets: { wfRoom, crevRoom, crevY, mineRoom, thC }, resources, stations, rubble,
     W, Rn, settle, spawn, lookout, river: W.river, rimFall, poolA, streamA, lake, gate, mine, hall, ramp, pillars, village, mineLamps,
     campD: { center: dc, th: thD }, secret: { th: thS, pos: at(thS, Rs + 9, -120) }, areas, bench,
     thW, aX, aZ, topA,

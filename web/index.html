@@ -48,6 +48,24 @@
   #starIco { fill: #7fe8ff; stroke: none; }
   #starChip.pop { animation: pop .35s ease-out; }
   #starChip.hide { display: none; }
+  #bBag { pointer-events: auto; border: 0; color: inherit; margin: 6px 0 0 auto; padding: 6px 11px; font-size: 13px; font-family: inherit; }
+  #bBag.pop { animation: pop .35s ease-out; }
+  .bag { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0; }
+  .bag div { background: rgba(0,0,0,.06); border-radius: 10px; padding: 6px; min-height: 52px; font-size: 12px; line-height: 1.25; }
+  .bag div b { display: block; font-size: 17px; }
+  .bag button, .recipes button { margin-top: 4px; border: 0; border-radius: 8px; padding: 4px 8px; background: var(--ember); color: #fff; font: inherit; font-size: 12px; }
+  .recipes { list-style: none; padding: 0; margin: 6px 0; }
+  .recipes li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,.08); font-size: 13px; }
+  .recipes li span { flex: 1; }
+  .recipes li small { display: block; color: #6b625a; }
+  .recipes button:disabled { background: #b9b0a6; }
+  #sCraft .card, #sBag .card { width: min(640px, 100%); }
+  #sCraft h2, #sBag h2 { font-size: 21px; margin-bottom: 2px; }
+  #sCraft #craftHint { font-size: 13px; margin: 2px 0; color: #5d7080; }
+  #sCraft .recipes li { padding: 4px 0; }
+  #sCraft .acts, #sBag .acts { margin-top: 6px; }
+  #sCraft .acts .primary, #sBag .acts .primary { padding: 9px 22px; font-size: 17px; }
+  .gear { font-size: 12px; margin: 4px 0; padding-left: 16px; }
   @keyframes pop { 40% { transform: scale(1.25); background: rgba(95, 224, 255, .45); } }
 
   /* полоска спуска: слева край Бездны, справа дно; палатки — лагеря */
@@ -189,6 +207,7 @@
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.2-4.6-9.6-9.1A5.6 5.6 0 0 1 12 6.1a5.6 5.6 0 0 1 9.6 5.8C19.2 16.4 12 21 12 21z" /></symbol>
   <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.5 2 4 14h7l-1.5 8L19 10h-7z" /></symbol>
   <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z" /></symbol>
+  <symbol id="i-bag" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v10.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19.5zM9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7M9 14h6v4H9z" /></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14" /></symbol>
   <symbol id="i-tent" viewBox="0 0 24 24"><path d="M2 20h20L12 4zM12 4v16M9 20l3-6 3 6" /></symbol>
   <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></symbol>
@@ -213,6 +232,7 @@
       <div class="chip" id="starChip"><svg class="ico" id="starIco"><use href="#i-gem" /></svg><span id="stars">0/0</span></div>
       <div class="chip"><svg class="ico"><use href="#i-clock" /></svg><span id="time">0:00</span></div>
     </div>
+    <button class="chip" id="bBag" type="button"><svg class="ico"><use href="#i-bag" /></svg><span id="bagN">рюкзак 0/8</span></button>
   </div>
   <button id="pause" type="button" aria-label="Пауза"><svg class="ico"><use href="#i-pause" /></svg></button>
   <div id="toast"></div>
@@ -277,6 +297,21 @@
     <button class="secondary" id="restart" type="button">Заново</button>
     <button class="secondary" id="exit" type="button" hidden>Выйти</button>
   </div>
+</div></div>
+
+<div class="screen" id="sBag"><div class="card">
+  <h2>Рюкзак</h2>
+  <div class="bag" id="bagGrid"></div>
+  <div class="lbl">Снаряжение</div>
+  <ul class="gear" id="bagGear"></ul>
+  <div class="acts"><button class="primary" id="bagClose" type="button">Дальше</button></div>
+</div></div>
+
+<div class="screen" id="sCraft"><div class="card">
+  <h2 id="craftTitle">Верстак</h2>
+  <p class="small" id="craftHint"></p>
+  <ul class="recipes" id="craftList"></ul>
+  <div class="acts"><button class="primary" id="craftClose" type="button">Дальше</button></div>
 </div></div>
 
 <div class="screen" id="sNote"><div class="card">

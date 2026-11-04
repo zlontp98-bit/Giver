@@ -45,7 +45,7 @@ const path = require('path');
     const routes = {
       compass: () => { P.spawn(new V(L.poolA.x - 9, -22, L.poolA.z)); const th = L.thW, Rw = R(th, -22); return [new V(L.poolA.x - 3, -23, L.poolA.z - 3), at(th, Rw - 2.5, -23), at(th + 0.01, Rw + 5, -22.6), new V(S.wfRoom[0], -22, S.wfRoom[2])]; },
       map: () => { const b1 = L.ledges.b[0], u = (S.thC - b1.th0) / b1.span, th = S.thC, y = b1.y0 + (b1.y1 - b1.y0) * u; P.spawn(at(th, R(th, y) - 2.5, y + 1)); return [at(th, R(th, -60) + 3, S.crevY), at(th, R(th, -60) + 12, S.crevY), at(th, R(th, -60) + 22, S.crevY), new V(S.crevRoom[0], S.crevY, S.crevRoom[2])]; },
-      lamp: () => { P.spawn(new V(L.hall.pos[0], L.hall.floor + 1, L.hall.pos[2])); const Rm = Math.hypot(L.mine[0][0], L.mine[0][2]) + 4; return [at(0.79, Rm + 66, -97), at(0.86, Rm + 75, -96.6), new V(S.mineRoom[0], -96.6, S.mineRoom[2])]; },
+      lamp: () => { g.state.gear.pickaxe = true; g.ents.set(g.ents.get('rubble:mine'), { cleared: true }); P.spawn(new V(L.hall.pos[0], L.hall.floor + 1, L.hall.pos[2])); const Rm = Math.hypot(L.mine[0][0], L.mine[0][2]) + 4; return [at(0.79, Rm + 66, -97), at(0.86, Rm + 75, -96.6), new V(S.mineRoom[0], -96.6, S.mineRoom[2])]; },
       badge: () => { const th = L.secret.th, Rs = R(th, -118); P.spawn(at(th, Rs - 14, -118)); return [at(th, Rs - 7, -120), at(th, Rs + 4, -120), new V(L.secret.pos[0], -120, L.secret.pos[2])]; },
       crystal: () => { const I = L.lake.island; P.spawn(new V(L.lake.x - L.lake.rx - 3, -203, L.lake.z)); return [new V(L.lake.x - L.lake.rx + 6, -207, L.lake.z), new V(I.x - 3, -207, I.z), new V(I.x, -206, I.z)]; },
     };

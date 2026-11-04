@@ -121,6 +121,107 @@ export class Props {
     this.zipLines();
     this.rings();
     this.notesAndFinds();
+    this.resourceViews();
+    this.rubbleViews();
+    this.stations();
+  }
+
+  // ——— ресурсы (этап 4): модели по видам; собрали — экземпляр прячется, вырос снова — показывается ———
+  // Вернёт для каждого ресурса { data, view } — main.js делает из них сущности.
+  resourceViews() {
+    const R = this.L.resources, byType = {};
+    R.forEach((r) => (byType[r.type] || (byType[r.type] = [])).push(r));
+    const rng = makeRng(707);
+    this.resList = [];
+    const hideShow = (meshes, i, mats, on) => { for (let k = 0; k < meshes.length; k++) { meshes[k].setMatrixAt(i, on ? mats[k][i] : ZERO); meshes[k].instanceMatrix.needsUpdate = true; } };
+    const fromModel = (type, model, s, opts = {}) => {
+      const list = (byType[type] || []).map((r) => ({ x: r.pos[0], y: r.pos[1] + (opts.dy || 0), z: r.pos[2], ry: rng() * TAU, s: s * (r.rich ? 1.35 : 1) }));
+      if (!list.length) return;
+      const meshes = this.many(model, list, { shadow: false });
+      if (opts.glow) for (const m of meshes) m.material = glowing(m.material.clone(), opts.glow);
+      const mats = meshes.map((m) => list.map((_, i) => { const q = new THREE.Matrix4(); m.getMatrixAt(i, q); return q; }));
+      byType[type].forEach((r, i) => this.resList.push({ r, view: { sync: (e) => hideShow(meshes, i, mats, !e.taken) } }));
+    };
+    fromModel('wood', 'sv-resource-wood', 7);
+    fromModel('stone', 'sv-resource-stone', 6);
+    fromModel('mushroom', 'mushroom_redGroup', 2.4);
+    fromModel('glowshroom', 'mushroom_tanTall', 2.6, { glow: 0.9 });
+    // руда: тёмный камень с рыжими крупинками (светятся немного — видно в шахте)
+    const ores = byType.ore || [];
+    if (ores.length) {
+      const body = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.55), new THREE.MeshLambertMaterial({ color: '#4d4541' }), ores.length);
+      const bits = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshBasicMaterial({ color: '#ff9a3c' }), ores.length * 4);
+      const mb = [], mt = [];
+      ores.forEach((r, i) => {
+        const sc = r.rich ? 1.4 : 1, m = new THREE.Matrix4().compose(new THREE.Vector3(r.pos[0], r.pos[1] + 0.35 * sc, r.pos[2]), new THREE.Quaternion().setFromEuler(new THREE.Euler(rng(), rng() * 3, rng())), new THREE.Vector3(sc, sc * 0.8, sc));
+        body.setMatrixAt(i, m); mb.push(m);
+        for (let k = 0; k < 4; k++) {
+          const a = k * 1.7 + i, q = new THREE.Matrix4().makeTranslation(r.pos[0] + Math.cos(a) * 0.45 * sc, r.pos[1] + (0.3 + (k % 2) * 0.25) * sc, r.pos[2] + Math.sin(a) * 0.45 * sc);
+          bits.setMatrixAt(i * 4 + k, q); mt.push(q);
+        }
+      });
+      body.castShadow = true;
+      this.scene.add(body, bits);
+      ores.forEach((r, i) => this.resList.push({ r, view: { sync: (e) => {
+        body.setMatrixAt(i, e.taken ? ZERO : mb[i]); body.instanceMatrix.needsUpdate = true;
+        for (let k = 0; k < 4; k++) bits.setMatrixAt(i * 4 + k, e.taken ? ZERO : mt[i * 4 + k]);
+        bits.instanceMatrix.needsUpdate = true;
+      } } }));
+    }
+    // ягоды на кустах — тоже ресурс (раньше съедались сами)
+    if (this.berryMesh) {
+      const orig = [];
+      for (let k = 0; k < this.berryMesh.count; k++) { const q = new THREE.Matrix4(); this.berryMesh.getMatrixAt(k, q); orig.push(q); }
+      this.bushes.forEach((b, i) => this.resList.push({ r: { id: `res:berry${i}`, type: 'berry', pos: [b.x, b.y, b.z] }, view: { sync: (e) => {
+        for (let k = 0; k < 7; k++) this.berryMesh.setMatrixAt(b.idx + k, e.taken ? ZERO : orig[b.idx + k]);
+        this.berryMesh.instanceMatrix.needsUpdate = true;
+      } } }));
+    }
+  }
+
+  // ——— завалы: груда камней поперёк хода; разбили — камни и столкновение исчезают ———
+  rubbleViews() {
+    this.rubbleList = [];
+    for (const R of this.L.rubble) {
+      const [x, y, z] = R.pos, c = Math.cos(R.rot), s = Math.sin(R.rot);
+      const list = [[-1.4, 0, 2.6], [0, 0.2, 3.0], [1.4, 0, 2.5], [-0.6, 1.3, 2.0], [0.7, 1.2, 2.2]].map(([u, h, sc], i) => ({ x: x + u * c, y: y + h - 0.3, z: z - u * s, ry: i * 1.3, s: sc }));
+      const meshes = this.many('rock_largeC', list);
+      const col = { box: true, c: new THREE.Vector3(x, y + 1.6, z), hx: 2.4, hy: 1.6, hz: 0.9, rot: R.rot, cos: Math.cos(R.rot), sin: Math.sin(R.rot) };
+      this.colliders.push(col);
+      this.rubbleList.push({ r: R, view: { sync: (e) => {
+        if (!e.cleared) return;
+        for (const m of meshes) m.visible = false;
+        if (this.physics) this.physics.removeCollider(col);
+      } } });
+    }
+  }
+
+  // ——— верстаки и печи (места крафта) ———
+  stations() {
+    const parts = [], glow = [];
+    for (const st of this.L.stations) {
+      const [x, y, z] = st.pos;
+      if (st.type === 'workbench' && st.model !== false) {
+        this.many('sv-workbench', [{ x, y, z, ry: 0.3, s: 3 }]);
+        this.box(x, y + 0.5, z, 0.9, 0.5, 0.6, 0.3);
+      }
+      if (st.type === 'furnace') {
+        const body = new THREE.BoxGeometry(1.6, 1.5, 1.4); body.translate(0, 0.75, 0);
+        parts.push({ geo: body, m: new THREE.Matrix4().makeTranslation(x, y, z), color: '#7d7368' });
+        const top = new THREE.CylinderGeometry(0.3, 0.38, 1.4, 6); top.translate(0.35, 2.1, -0.3);
+        parts.push({ geo: top, m: new THREE.Matrix4().makeTranslation(x, y, z), color: '#5d554d' });
+        const mouth = new THREE.BoxGeometry(0.7, 0.5, 0.1); mouth.translate(0, 0.55, 0.71);
+        glow.push(new THREE.Matrix4().makeTranslation(x, y, z));
+        this.box(x, y + 0.75, z, 0.8, 0.75, 0.7, 0);
+        st._mouth = mouth;
+      }
+    }
+    if (parts.length) this.solid(parts);
+    if (glow.length) {
+      const g = new THREE.InstancedMesh(new THREE.BoxGeometry(0.7, 0.5, 0.1).translate(0, 0.55, 0.71), new THREE.MeshBasicMaterial({ color: '#ff8a3a' }), glow.length);
+      glow.forEach((m, i) => g.setMatrixAt(i, m));
+      this.scene.add(g);
+    }
   }
 
   // ——— записки (столбики с табличкой) и находки (сундуки с огоньком над ними) ———
@@ -731,3 +832,4 @@ export class Props {
 }
 
 const _v = new THREE.Vector3();
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);

@@ -235,16 +235,6 @@ export class Player {
 
   checkPickups(dt) {
     const p = this.pos;
-    const bushes = this.props.bushes || [];
-    for (const b of bushes) {
-      if (b.taken) continue;
-      if (Math.abs(b.x - p.x) < 1.6 && Math.abs(b.z - p.z) < 1.6 && Math.abs(b.y - p.y) < 2) {
-        b.taken = true;
-        this.props.takeBerries(b);
-        this.stamina = 100; this.health = Math.min(100, this.health + 25);
-        this.ev.berries();
-      }
-    }
     for (const c of this.props.camps) {
       if (Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < 5 && Math.abs(c.pos.y - p.y) < 3) {
         if (!c.reached) { c.reached = true; this.ev.camp(c); }

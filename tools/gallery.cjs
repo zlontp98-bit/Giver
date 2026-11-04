@@ -50,9 +50,22 @@ const q = process.argv[2] || 'medium', only = process.argv[3];
     ['s6-island', () => { const g = window.__giver, L = g.L, P = g.player, V = P.pos.constructor, I = L.lake.island; P.spawn(new V(I.x - 7, -205, I.z + 2)); g.cam.yaw = Math.atan2(-7, 2) + 0.15; g.cam.pitch = 0.18; }],
   ];
   if (only === 'secret') shots.splice(0, shots.length, ...secretShots);
+  // ресурсы и крафт (этап 4): node tools/gallery.cjs medium craft
+  const look = (id, off, pitch = 0.15, turn = 0.55) => `(() => { const g = window.__giver, P = g.player, V = P.pos.constructor; const e = g.ents.get('${id}') || g.ents.byKind('res').find((q) => q.type === '${id}' && !q.taken);
+    P.spawn(e.pos.clone().add(new V(${off[0]}, 1, ${off[1]}))); g.cam.yaw = Math.atan2(${off[0]}, ${off[1]}) + ${turn}; g.cam.pitch = ${pitch}; })`;
+  const craftShots = [
+    ['c1-stations', look('st:bench1', [2.6, 3.2], 0.2), 3000],
+    ['c2-craft', () => { const g = window.__giver; g.state.inv = { wood: 7, stone: 4, ore: 3, berry: 5, mushroom: 2 }; g.openCraft('workbench'); }, 900],
+    ['c3-bag', () => { const g = window.__giver; document.getElementById('craftClose').onclick(); g.state.gear.pickaxe = true; g.state.inv = { wood: 7, stone: 4, ore: 6, ingot: 2, berry: 5, glowshroom: 1, stew: 1 }; g.openBag(); }, 900],
+    ['c4-ore', `() => { document.getElementById('bagClose').onclick(); ${look('ore', [1.6, 1.4], 0.25)}(); }`, 9000],
+    ['c5-rubble', look('rubble:mine', [-2.2, 0.8], 0.15), 3000],
+    ['c6-wood', look('wood', [2.0, 1.6], 0.2), 3000],
+    ['c7-glowshroom', look('glowshroom', [1.8, 1.4], 0.25), 3000],
+  ];
+  if (only === 'craft') shots.splice(0, shots.length, ...craftShots);
   for (const [name, setup, wait] of shots) {
-    if (only && only !== 'hook' && only !== 'secret' && !name.includes(only)) continue;
-    await page.evaluate(`(${setup.toString()})()`);
+    if (only && !['hook', 'secret', 'craft'].includes(only) && !name.includes(only)) continue;
+    await page.evaluate(typeof setup === 'string' ? `(${setup})()` : `(${setup.toString()})()`);
     await page.waitForTimeout(wait || 2600);
     if (/mine|hall|crevice/.test(name)) await page.waitForTimeout(6000);    // дымка в шахте темнеет постепенно
     await page.screenshot({ path: path.join(OUT, `gal-${name}.png`) });

@@ -63,16 +63,18 @@ export class Entities {
   }
 
   // ближайшая сущность в радиусе r (и по высоте dy), подходящая под test
+  // ближайшая сущность в радиусе r (у больших — e.reach: дотянуться можно на столько дальше)
   nearest(p, r, dy, test) {
-    let best = null, bd = r;
-    const x0 = Math.floor((p.x - r) / CELL), x1 = Math.floor((p.x + r) / CELL), z0 = Math.floor((p.z - r) / CELL), z1 = Math.floor((p.z + r) / CELL);
+    let best = null, bd = 1e9;
+    const R = r + 2;
+    const x0 = Math.floor((p.x - R) / CELL), x1 = Math.floor((p.x + R) / CELL), z0 = Math.floor((p.z - R) / CELL), z1 = Math.floor((p.z + R) / CELL);
     for (let gx = x0; gx <= x1; gx++) for (let gz = z0; gz <= z1; gz++) {
       const set = this.grid.get(gx * 65536 + gz);
       if (!set) continue;
       for (const e of set) {
         if (Math.abs(e.pos.y - p.y) > dy || (test && !test(e))) continue;
-        const d = Math.hypot(e.pos.x - p.x, e.pos.z - p.z);
-        if (d < bd) { bd = d; best = e; }
+        const d = Math.hypot(e.pos.x - p.x, e.pos.z - p.z) - (e.reach || 0);
+        if (d < r && d < bd) { bd = d; best = e; }
       }
     }
     return best;

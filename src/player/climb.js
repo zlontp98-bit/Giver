@@ -77,7 +77,9 @@ export class ClimbMethods {
     const mx = Math.abs(input.mx) > 0.15 ? input.mx : 0, my = Math.abs(input.my) > 0.15 ? input.my : 0;
     const moving = mx !== 0 || my !== 0;
     const over = n.y < -0.2;                           // нависание — тяжелее
-    this.spend((moving ? COST.climb * (over ? 1.6 : 1) : COST.hang) * dt);
+    // шипы на ботинках: на треть меньше сил и нависание не тяжелее стены
+    const sp = this.gear && this.gear.spikes;
+    this.spend((moving ? COST.climb * (over && !sp ? 1.6 : 1) : COST.hang) * (sp ? 0.66 : 1) * dt);
     if (moving) this.climbPhase += dt * 7;
     const center = _c.copy(this.pos); center.y += 0.9;
     const old = _o.copy(center), oldN = _n.copy(n);
@@ -86,7 +88,7 @@ export class ClimbMethods {
     if (P.f(center.x, center.y, center.z) > 1.3) { center.copy(old); }
     this.stick(center, n);
     // упёрлись в потолок или ушли на пол — откат
-    if (n.y < -STEEP) { center.copy(old); n.copy(oldN); }
+    if (n.y < -(this.gear && this.gear.spikes ? 0.9 : STEEP)) { center.copy(old); n.copy(oldN); }   // с шипами — и под крутым нависанием
     // руками дотянулись до верха: впереди над руками пусто, а за краем — земля → перелезть
     if (my > 0.3) {
       const hx = center.x - n.x * 0.55, hy = center.y + 1.05, hz = center.z - n.z * 0.55;
