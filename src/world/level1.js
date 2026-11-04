@@ -10,7 +10,9 @@ import { clamp, makeRng } from '../core/noise.js';
 
 export const LEVEL_SEED = 20261103;
 
-export function buildLevel1(W) {
+// opt.demo — демоверсия: играем только верх (посёлок, смотровая, уступы к водопаду, терраса, пещера, арка к столбу);
+// форма мира (SDF) одна и та же, меняются только сущности и граница глубины (см. L.demo)
+export function buildLevel1(W, opt = {}) {
   const at = (th, r, y) => [Math.sin(th) * r, y, Math.cos(th) * r];
   const R = (th, y) => W.pitR(Math.cos(th), Math.sin(th), y);
   const N = Math.PI;                              // север
@@ -40,6 +42,19 @@ export function buildLevel1(W) {
   // тропа от смотровой площадки вниз на террасу (по стене)
   const pathLedge = { th0: N - 0.10, span: 0.40, y0: -1.6, y1: -22.5, depth: 4.6 };
   W.ledge(pathLedge);
+  // короткий путь со смотровой к водопаду (демоверсия, но форма — всегда): каменные уступы вдоль стены на восток,
+  // между ними — прыжки; перед водопадом провал 7–8 м, над ним кольцо для крюка (раскачка); за провалом —
+  // уступ у самой струи и ниша-тайник за ней. Угол θ = N − a (a растёт к востоку)
+  const step = (aW, aE, yW, yE, depth = 3.6) => { const l = { th0: N - aE, span: aE - aW, y0: yE, y1: yW, depth, thick: 2.6 }; W.ledge(l); return l; };
+  const falls = {
+    steps: [step(0.126, 0.166, -1.8, -2.6, 4.0), step(0.176, 0.192, -3.7, -3.7), step(0.202, 0.218, -4.9, -4.9), step(0.228, 0.240, -6.0, -6.0, 3.8)],
+    far: step(0.276, 0.297, -7.0, -7.2, 3.8),
+  };
+  {
+    const aN = 0.304, rN = R(N - aN, -7.2);
+    falls.niche = at(N - aN, rN + 2.6, -6.0);
+    W.cave({ x: falls.niche[0], y: falls.niche[1], z: falls.niche[2], rx: 2.8, ry: 2.0, rz: 2.8, floor: -7.2, k: 1.2 });
+  }
   // водопад с края падает в заводь на террасе, дальше ручей до края террасы и второй водопад в глубину
   const poolA = { x: rimFall[0] - 2, y: -21.6, z: rimFall[2] + 7 };
   W.cave({ x: poolA.x, y: poolA.y, z: poolA.z, rx: 8.5, ry: 2.4, rz: 7.5, floor: -23.6, k: 1.5 });
@@ -409,9 +424,62 @@ export function buildLevel1(W) {
     mine[1], mine[3], hall.pos, ramp[2], ramp[4], at(-0.1, R(-0.1, -124) - 4, -124), at(-0.9, R(-0.9, -129) - 4, -129), dc,
     at(-2.2, R(-2.2, -142) - 4, -142), at(-2.6, R(-2.6, -180) - 5, -180), [lake.x - 30, -200, lake.z - 20], [lake.x, -200, lake.z + 26],
   ];
+  // ——— демоверсия: только верх яруса. Ниже границы — туман глубины (сорвался туда — очнулся у лагеря).
+  // Остаются: посёлок, смотровая, тропа по стене, уступы к водопаду с кольцом, терраса с лесом, пещера за
+  // водопадом (завал — нужна кирка), арка к ближнему столбу (вид в глубину). Тросы — только смотровая → терраса.
+  let demo = null;
+  if (opt.demo) {
+    demo = { floor: -42, falls };
+    const keep = (p) => p[1] > demo.floor;
+    const ringOn = (th, y) => { for (let r = R(th, y) - 20; r < R(th, y) + 15; r += 0.25) { const p = at(th, r, y); if (W.f(p[0], p[1], p[2]) < 0.45) return p; } return at(th, R(th, y), y); };
+    const ringP = ringOn(N - 0.258, -0.6);
+    const out = at(N - 0.258, R(N - 0.258, -0.6) - 2.6, -0.6);           // кольцо — на 2.6 м от стены, над серединой провала
+    rings.length = 0;
+    rings.push({ name: 'над провалом у водопада', pos: Math.hypot(ringP[0], ringP[2]) > Math.hypot(out[0], out[2]) ? out : ringP });
+    zips.length = 1;
+    finds.length = 1;                                                     // компас — в пещере за водопадом (за завалом)
+    finds.push({ id: 'charm', name: 'Оберег первопроходца', where: 'в нише за струёй водопада', pos: onGround(falls.niche[0], falls.niche[2], -5.5, 4) });
+    for (let i = notes.length - 1; i >= 0; i--) if (!keep(notes[i].at)) notes.splice(i, 1);
+    notes.push({ id: 'n9', at: onGround(...(() => { const p = at(N - 0.150, R(N - 0.150, -2.2) - 2.2, -2.2); return [p[0], p[2]]; })(), 0, 6), title: 'Метка на камне',
+      text: 'Короткая дорога к водопаду. Камни шатаются, прыгать — с разбега. Над провалом мы вбили кольцо: зацепись крюком, шагни вниз и раскачайся. Кто дошёл — загляни за струю.' });
+    for (let i = resources.length - 1; i >= 0; i--) if (!keep(resources[i].pos)) resources.splice(i, 1);
+    // камни: у подножия стены на террасе и на уступах; подготовленные — поваленные стволы и груды камней (×2)
+    {
+      const rng = makeRng(5505);
+      let n = 0;
+      for (let t = 0; t < 400 && n < 9; t++) {
+        const th = N - 0.45 + rng() * 0.9, y0 = -18, r = R(th, -24) - 3 - rng() * 10, x = Math.sin(th) * r, z = Math.cos(th) * r;
+        const y = groundY(x, z, y0, 25);
+        if (y < -36 || W.f(x, y + 1.2, z) < 0.6 || Math.hypot(x - poolA.x, z - poolA.z) < 10) continue;
+        if (resources.some((q) => Math.hypot(q.pos[0] - x, q.pos[2] - z) < 4)) continue;
+        resources.push({ id: `res:dstone${n}`, type: 'stone', pos: [x, y, z], rich: n < 3 ? 1 : 0 }); n++;
+      }
+      for (const l of falls.steps.slice(1, 3)) {
+        const th = l.th0 + l.span * 0.5, y = l.y0, r = R(th, y) - 1.6;
+        resources.push({ id: `res:dstep${resources.length}`, type: 'stone', pos: [Math.sin(th) * r, groundY(Math.sin(th) * r, Math.cos(th) * r, y + 2, 4), Math.cos(th) * r], rich: 0 });
+      }
+      const woods = resources.filter((q) => q.type === 'wood');
+      woods.slice(0, 4).forEach((q) => { q.rich = 1; });                 // поваленные стволы — дерева вдвое
+    }
+    // светогрибы — в тёмной пещере за водопадом
+    {
+      const pts = [[wfRoom[0] + 3, wfRoom[2] + 1.5], [wfRoom[0] - 2.5, wfRoom[2] + 2], [wfRoom[0] + 1, wfRoom[2] - 3]];
+      pts.forEach(([x, z], i) => resources.push({ id: `res:dglow${i}`, type: 'glowshroom', pos: [x, groundY(x, z, -19.5, 6), z] }));
+    }
+    // завал в проходе за водопадом: к компасу — только с киркой (делается в рюкзаке: 3 дерева + 2 камня)
+    rubble.length = 0;
+    {
+      const a = at(thW, Rwf - 2.5, -23.2), b = at(thW + 0.01, Rwf + 6, -22.6), u = 0.72;
+      const x = a[0] + (b[0] - a[0]) * u, z = a[2] + (b[2] - a[2]) * u;
+      rubble.push({ id: 'rubble:falls', pos: [x, groundY(x, z, -21.5, 4), z], rot: Math.atan2(b[0] - a[0], b[2] - a[2]) });
+    }
+    stations.length = 0;
+  }
+
   return {
+    demo,
     ledges: { path: pathLedge, ab: abLedge, b: bLedges, mineIn, mineOut, sw: swLedges, e: eLedges, scree }, zips, rings, finds, notes,
-    secrets: { wfRoom, crevRoom, crevY, mineRoom, thC }, resources, stations, rubble, beast,
+    secrets: { wfRoom, crevRoom, crevY, mineRoom, thC }, resources, stations, rubble, beast: opt.demo ? null : beast,
     W, Rn, settle, spawn, lookout, river: W.river, rimFall, poolA, streamA, lake, gate, mine, hall, ramp, pillars, village, mineLamps,
     campD: { center: dc, th: thD }, secret: { th: thS, pos: at(thS, Rs + 9, -120) }, areas, bench,
     thW, aX, aZ, topA,

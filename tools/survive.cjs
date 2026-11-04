@@ -9,7 +9,7 @@ const path = require('path');
   const page = await browser.newPage({ viewport: { width: 853, height: 384 } });
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-  await page.addInitScript(() => { window.__noAdapt = true; });
+  await page.addInitScript(() => { window.__noAdapt = true; window.__giverFull = true; });
   const url = 'file://' + path.resolve(__dirname, '../dist/giver.html');
   const r = [];
   const ok = (c, m) => r.push((c ? '✓ ' : '✗ ') + m);

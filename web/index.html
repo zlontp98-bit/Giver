@@ -63,6 +63,12 @@
   .recipes li small { display: block; color: #6b625a; }
   .recipes button:disabled { background: #b9b0a6; }
   #sCraft .card, #sBag .card { width: min(640px, 100%); }
+  #sBag .bag { grid-template-columns: repeat(8, 1fr); gap: 5px; margin: 6px 0; }
+  #sBag .bag div { min-height: 46px; padding: 5px; font-size: 11px; }
+  #sBag .bag div b { font-size: 15px; }
+  #sBag .bag button { padding: 3px 6px; font-size: 11px; }
+  #sBag .recipes li { padding: 3px 0; }
+  #sBag .gear { margin: 2px 0 4px; }
   #sCraft h2, #sBag h2 { font-size: 21px; margin-bottom: 2px; }
   #sCraft #craftHint { font-size: 13px; margin: 2px 0; color: #5d7080; }
   #sCraft .recipes li { padding: 4px 0; }
@@ -317,6 +323,7 @@
   <div class="bag" id="bagGrid"></div>
   <div class="lbl">Снаряжение</div>
   <ul class="gear" id="bagGear"></ul>
+  <div id="bagCraftWrap" hidden><div class="lbl">Сделать</div><ul class="recipes" id="bagCraft"></ul></div>
   <div class="acts"><button class="primary" id="bagClose" type="button">Дальше</button></div>
 </div></div>
 

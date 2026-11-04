@@ -22,11 +22,13 @@ export class Packs {
   }
 
   // сорвался: выложить вещи в рюкзак на земле под местом гибели. Вернёт сущность или null (рюкзак был пуст)
-  drop(pos) {
+  // minY — ниже рюкзак не кладём (демоверсия: в туман глубины не попасть) — тогда вещи остаются при герое
+  drop(pos, minY = -1e9) {
     const items = {};
     for (const [id, n] of Object.entries(this.inv.inv)) if (n > 0) items[id] = n;
     if (!Object.keys(items).length) return null;
     const g = this.P.ground(pos.x, pos.y + 0.5, pos.z, 1.5, 420);
+    if ((g ? g.y : pos.y) < minY) return null;
     const p = g ? new THREE.Vector3(pos.x, g.y, pos.z) : (this.safe ? this.safe.clone() : pos.clone());
     for (const k of Object.keys(this.inv.inv)) delete this.inv.inv[k];
     const old = this.list().sort((a, b) => a.n - b.n);

@@ -11,7 +11,7 @@ const path = require('path'), fs = require('fs');
   const page = await browser.newPage({ viewport: { width: 640, height: 360 }, deviceScaleFactor: 1 });
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
-  await page.addInitScript(() => { window.__noAdapt = true; });
+  await page.addInitScript(() => { window.__noAdapt = true; window.__giverFull = true; });
   await page.goto('file://' + path.resolve(__dirname, '../dist/giver.html'));
   await page.waitForFunction(() => window.__giver && window.__giver.player, null, { timeout: 90000 });
   await page.click('#go');

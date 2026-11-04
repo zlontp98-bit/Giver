@@ -52,6 +52,8 @@ const { scene, camera } = gfx;
 const LV = LEVELS[START_LEVEL];
 const W = new SdfWorld(LV.seed);
 const L = LV.build(W);
+const DEMO = L.demo;                                      // демоверсия: только верх яруса, ниже L.demo.floor — туман
+if (DEMO) { GEAR.pickaxe.what = 'разбивать завалы'; RECIPES.find((r) => r.id === 'stew').what = 'силы до конца, +30 здоровья'; }
 mark('план мира');
 // состояние игры (данные, без картинки) и сущности: записки, тайники, ресурсы, рюкзаки, постройки
 const state = stateFromSave(save.data, LV.id);
@@ -82,7 +84,7 @@ const events = {
   died: (why) => {
     game.running = false;
     if (builder && builder.active) stopBuild();
-    const pk = packs.drop(player.pos);
+    const pk = packs.drop(player.pos, DEMO ? DEMO.floor : -1e9);
     if (pk) bagPop();
     const cause = why === 'abyss' ? 'Сорвался в бездну.' : why === 'beast' ? 'Скальник загрыз.' : 'Слишком сильно ударился.';
     screens.showDead(`${cause} Вернёшься: ${game.campName}.${pk ? ` Вещи остались в рюкзаке там, где ты упал (${Math.max(0, Math.round(-pk.pos.y))} м) — вернись за ними. Снаряжение — с тобой.` : ''}`);
@@ -163,7 +165,7 @@ loadModels().then((models) => {
   structures = new Structures(scene, W, physics, ents);
   packs = new Packs(scene, ents, inv, physics, state);
   builder = new Builder(scene, structures, physics);
-  creature = new Creature(scene, physics, L.beast.home, L.beast.leash, {
+  if (L.beast) creature = new Creature(scene, physics, L.beast.home, L.beast.leash, {
     alert: () => hud.message('Шорох… Скальник заметил тебя! Беги бегом, лезь на стену или в воду', 3),
     lost: () => hud.message('Скальник отстал и ушёл к логову', 2.2),
     bite: (dmg, dir) => {
@@ -173,7 +175,7 @@ loadModels().then((models) => {
       player.state = 'air'; player.onBox = null; player.peakY = player.pos.y;
     },
   });
-  ents.add(creature.e);
+  if (creature) ents.add(creature.e);
   ents.restoreDynamic((e) => (e.kind === 'structure' ? structures.view() : e.kind === 'pack' ? packs.view() : null));
   player.ents = ents;
   player.interactTest = (e) => !!ACTIONS[e.kind] && ACTIONS[e.kind].can(e);
@@ -187,7 +189,7 @@ loadModels().then((models) => {
   for (const f of props.fires) fires.push(new Campfire(scene, f, { light: false }));
   for (const c of props.camps) if (!c.village) flies.push(new Fireflies(scene, c.pos, 14, 7));
   motes = new Motes(scene);
-  hud.setupTrack(-PIT_DEPTH, props.camps.filter((c) => !c.village), areaName);
+  hud.setupTrack(DEMO ? DEMO.floor : -PIT_DEPTH, props.camps.filter((c) => !c.village && (!DEMO || c.pos.y > DEMO.floor)), areaName);
   setQuality(save.settings.quality || 'low', false);
   setShowFps(!!save.settings.showFps, false);
   mark('предметы и физика');
@@ -198,7 +200,7 @@ loadModels().then((models) => {
   camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
-  window.__giver = { THREE, terrain, state, ents, structures, packs, builder, startBuild: (t) => startBuild(t), creature, buildTick: () => buildTick(), savePlayer, safePos, game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact), inv, openBag, openCraft };
+  window.__giver = { DEMO, THREE, terrain, state, ents, structures, packs, builder, startBuild: (t) => startBuild(t), creature, buildTick: () => buildTick(), savePlayer, safePos, game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact), inv, openBag, openCraft };
 });
 
 // подсказки по пути (каждая — один раз)
@@ -209,14 +211,27 @@ function makeHints() {
     { pos: v([L.aX - 40, -24, L.aZ - 10]), r: 14, text: 'Лесная окраина. Подойди к краю или к скале и жми «Хват» — можно лезть по любой крутой скале' },
     { pos: v(L.gate.inner), r: 12, text: 'Проход на второй ярус завален. Он откроется в следующих версиях' },
     { pos: v(L.mine[0]), r: 10, text: 'Заброшенная шахта. Внутри темно — фонарик на шапке зажжётся сам' },
-    { pos: v(L.beast.home), r: 34, text: 'Светогрибы здесь растут гуще… и что-то шуршит в камнях. Осторожно' },
-  ].map((h) => ({ ...h, shown: false }));
+    ...(L.beast ? [{ pos: v(L.beast.home), r: 34, text: 'Светогрибы здесь растут гуще… и что-то шуршит в камнях. Осторожно' }] : []),
+    ...(DEMO ? demoHints(v) : []),
+  ].filter((h) => !DEMO || h.pos.y > DEMO.floor).map((h) => ({ ...h, shown: false }));
+}
+// подсказки маршрута демоверсии: уступы к водопаду, кольцо над провалом, пещера, арка к столбу
+function demoHints(v) {
+  const F = DEMO.falls, s0 = F.steps[0], s3 = F.steps[3];
+  const onL = (l, u, y = 0) => { const th = l.th0 + l.span * u, yy = l.y0 + (l.y1 - l.y0) * u, r = W.pitR(Math.cos(th), Math.sin(th), yy) - 1.6; return v([Math.sin(th) * r, yy + y, Math.cos(th) * r]); };
+  return [
+    { pos: onL(s0, 0.5), r: 5, text: 'Короткая дорога к водопаду: прыгай с камня на камень. С разбега («Бег») — дальше' },
+    { pos: onL(s3, 0.5), r: 4, text: 'Провал не перепрыгнуть. Наведи прицел на кольцо (станет голубым), жми «Крюк», шагни вниз и раскачайся. «Прыжок» — соскочить' },
+    { pos: v(F.niche), r: 4, text: 'Ниша за струёй! Вниз отсюда — по стене руками («Хват»)' },
+    { pos: v(L.rubble[0].pos), r: 6, text: 'Проход завален. Нужна кирка — сделай её в рюкзаке: 3 дерева и 2 камня' },
+    { pos: v(L.pillars[3].pos), r: 14, text: 'Каменный столб над Бездной. Внизу — туман глубины первого яруса' },
+  ];
 }
 window.addEventListener('resize', () => gfx.resize());
 
 function respawn() {
   player.spawn(game.checkpoint);
-  creature.reset();
+  if (creature) creature.reset();
   safePos.copy(player.pos);
   hud.message(`Ты снова: ${game.campName}`);
   savePlayer(true);
@@ -362,10 +377,10 @@ ACTIONS.res = {
 ACTIONS.rubble = {
   label: () => (state.gear.pickaxe ? 'разбить завал' : 'завал: нужна кирка'), can: (e) => !e.cleared,
   run(e) {
-    if (!state.gear.pickaxe) { hud.message('Камни не сдвинуть руками — нужна кирка', 3); return; }
+    if (!state.gear.pickaxe) { hud.message(DEMO ? 'Камни не сдвинуть руками — нужна кирка. Открой рюкзак: 3 дерева + 2 камня' : 'Камни не сдвинуть руками — нужна кирка', 3.5); return; }
     ents.set(e, { cleared: true });
     save.write();
-    hud.message('Завал разобран — проход в каморку открыт', 3);
+    hud.message(DEMO ? 'Завал разобран — проход открыт' : 'Завал разобран — проход в каморку открыт', 3);
   },
 };
 ACTIONS.pack = {
@@ -433,7 +448,13 @@ function openBag() {
   for (let i = grid.length; i < BAG_SLOTS; i++) grid.push('<div></div>');
   $('bagGrid').innerHTML = grid.join('');
   const g = Object.keys(state.gear).map((id) => `<li><b>${GEAR[id].name}</b> — ${GEAR[id].what}</li>`);
-  $('bagGear').innerHTML = g.join('') || '<li>пока ничего — сделай у верстака кирку</li>';
+  $('bagGear').innerHTML = g.join('') || `<li>пока ничего — ${DEMO ? 'кирку можно сделать прямо здесь' : 'сделай у верстака кирку'}</li>`;
+  // демоверсия: простой крафт прямо в рюкзаке
+  $('bagCraftWrap').hidden = !DEMO;
+  if (DEMO) {
+    $('bagCraft').innerHTML = recipeRows(RECIPES.filter((r) => BAG_RECIPES.includes(r.id)));
+    $('bagCraft').querySelectorAll('[data-r]').forEach((b) => { b.onclick = () => craft(b.dataset.r); });
+  }
   $('bagGrid').querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
   $('bagGrid').querySelectorAll('[data-place]').forEach((b) => { b.onclick = () => { resumeFrom('sBag'); startBuild(b.dataset.place); }; });
   if (!$('sBag').classList.contains('show')) pauseFor('sBag');
@@ -446,19 +467,22 @@ function eat(id) {
   save.write();
   openBag();
 }
-let craftAt = 'workbench';
-function openCraft(at) {
-  craftAt = at;
-  $('craftTitle').textContent = at === 'workbench' ? 'Верстак' : 'Печь';
-  $('craftHint').textContent = at === 'workbench' ? 'Инструменты дают новые возможности: руда, крутые нависания, длинные спуски, далёкий крюк.' : 'Плавка руды и еда в дорогу.';
-  const rows = RECIPES.filter((r) => r.at === at).map((r) => {
+const BAG_RECIPES = ['pickaxe', 'stew'];                 // демоверсия: что делается прямо в рюкзаке
+function recipeRows(list) {
+  return list.map((r) => {
     const c = inv.canCraft(r), need = r.need, alt = r.alt;
     const fmt = (nd) => Object.entries(nd).map(([id, n]) => `${ITEMS[id].name} ${Math.min(inv.count(id), n)}/${n}`).join(' · ');
     const what = r.what || (r.gear ? GEAR[r.gear].what : r.give.stew ? 'силы до конца и +30 здоровья' : 'для снаряжения');
     return `<li><span>${r.name}<small>${fmt(need)}${alt ? ' (или ' + fmt(alt) + ')' : ''} — ${what}</small></span>` +
       `<button type="button" data-r="${r.id}" ${c.ok ? '' : 'disabled'}>${c.ok ? 'сделать' : c.why}</button></li>`;
-  });
-  $('craftList').innerHTML = rows.join('');
+  }).join('');
+}
+let craftAt = 'workbench';
+function openCraft(at) {
+  craftAt = at;
+  $('craftTitle').textContent = at === 'workbench' ? 'Верстак' : 'Печь';
+  $('craftHint').textContent = at === 'workbench' ? 'Инструменты дают новые возможности: руда, крутые нависания, длинные спуски, далёкий крюк.' : 'Плавка руды и еда в дорогу.';
+  $('craftList').innerHTML = recipeRows(RECIPES.filter((r) => r.at === at));
   $('craftList').querySelectorAll('[data-r]').forEach((b) => { b.onclick = () => craft(b.dataset.r); });
   if (!$('sCraft').classList.contains('show')) pauseFor('sCraft');
 }
@@ -467,7 +491,7 @@ function craft(id) {
   if (!res.ok) return;
   save.write();
   hud.message(r.gear ? `${r.name}: ${GEAR[r.gear].what}` : `Готово: ${r.name}`, 4);
-  openCraft(craftAt);
+  if ($('sBag').classList.contains('show')) openBag(); else openCraft(craftAt);
 }
 $('bBag').onclick = () => { if (!game.running) return; if (builder && builder.active) stopBuild(); else openBag(); };
 // ——— постройки: выбрать место и поставить (см. game/building.js) ———
@@ -577,7 +601,12 @@ function stepOnce(inp) {
   courseTime += STEP;
   player.carry();
   player.update(STEP, inp, cam.yaw);
-  creature.update(STEP, player);
+  if (creature) creature.update(STEP, player);
+  // демоверсия: провалился ниже границы — туман глубины, очнулся у лагеря (без урона и без потери вещей)
+  if (DEMO && player.pos.y < DEMO.floor && !player.dead) {
+    respawn();
+    hud.message('Туман глубины сомкнулся… Ты очнулся у лагеря. Глубже — в полной версии игры', 4.5);
+  }
 }
 
 function frame(now) {

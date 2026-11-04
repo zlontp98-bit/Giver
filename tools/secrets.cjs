@@ -8,7 +8,7 @@ const path = require('path');
   const page = await browser.newPage({ viewport: { width: 853, height: 384 }, deviceScaleFactor: 1 });
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-  await page.addInitScript(() => { window.__noAdapt = true; });
+  await page.addInitScript(() => { window.__noAdapt = true; window.__giverFull = true; });
   const url = 'file://' + path.resolve(__dirname, '../dist/giver.html');
   await page.goto(url);
   await page.evaluate(() => localStorage.removeItem('giver_v1'));

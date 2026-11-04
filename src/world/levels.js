@@ -5,6 +5,7 @@ import { buildLevel1, LEVEL_SEED } from './level1.js';
 import { PIT_DEPTH } from './sdf.js';
 
 export const LEVELS = {
-  layer1: { id: 'layer1', name: 'Первый ярус', seed: LEVEL_SEED, depth: PIT_DEPTH, build: buildLevel1 },
+  // демоверсия 0.5: только верх первого яруса (см. L.demo). Проверки всего яруса ставят window.__giverFull = true
+  layer1: { id: 'layer1', name: 'Первый ярус', seed: LEVEL_SEED, depth: PIT_DEPTH, build: (W) => buildLevel1(W, { demo: !globalThis.__giverFull }) },
 };
 export const START_LEVEL = 'layer1';

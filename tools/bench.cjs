@@ -12,7 +12,7 @@ const OUT = path.resolve(__dirname, 'out');
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   const url = 'file://' + path.resolve(__dirname, '../dist/giver.html');
-  await page.addInitScript(() => { window.__noAdapt = true; });
+  await page.addInitScript(() => { window.__noAdapt = true; window.__giverFull = true; });
   await page.goto(url);
   await page.waitForFunction(() => window.__giver, null, { timeout: 60000 });
   // кладём сохранение версии 0.4 (плоское) и перезапускаем — игра должна перевести его в новый формат
