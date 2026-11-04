@@ -25,10 +25,15 @@ function waterMat({ fall = false, color = '#2f8fb0', foam = '#e8fbff', alpha = 0
         return mix(mix(h(i), h(i + vec2(1, 0)), u.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), u.x), u.y); }
       void main(){
         ${fall
-          ? `float s = n(vec2(vUv.x * 9.0, vUv.y * 0.6 - uTime * 2.6 * uSpeed)) * 0.6 + n(vec2(vUv.x * 23.0, vUv.y * 1.4 - uTime * 3.4 * uSpeed)) * 0.4;
-             vec3 col = mix(uCol, uFoam, smoothstep(0.35, 0.8, s) * 0.85 + 0.15);
-             float edge = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
-             float a = uAlpha * edge * (0.55 + 0.45 * s) * vFade;`
+          ? `// рисованный водопад: бирюзовая струя, чёткие белые полосы пены бегут вниз, у краёв и внизу — пена
+             float s = n(vec2(vUv.x * 7.0, vUv.y * 0.55 - uTime * 2.6 * uSpeed)) * 0.6 + n(vec2(vUv.x * 19.0, vUv.y * 1.3 - uTime * 3.4 * uSpeed)) * 0.4;
+             float streak = smoothstep(0.56, 0.62, s);
+             float side = 1.0 - smoothstep(0.0, 0.22, min(vUv.x, 1.0 - vUv.x));
+             vec3 deep = uCol * vec3(0.62, 0.82, 0.92);
+             vec3 col = mix(deep, uCol, smoothstep(0.25, 0.55, s));
+             col = mix(col, uFoam, max(streak * 0.9, side * 0.7));
+             float edge = smoothstep(0.0, 0.1, vUv.x) * smoothstep(1.0, 0.9, vUv.x);
+             float a = uAlpha * edge * (0.75 + 0.25 * s) * vFade;`
           : `vec2 p = vec2(vUv.x * 4.0, vUv.y * 1.2 - uTime * 0.9 * uSpeed);
              float s = n(p * 2.0) * 0.6 + n(p * 5.0 + 7.0) * 0.4;
              vec3 col = mix(uCol, uFoam, smoothstep(0.62, 0.85, s) * 0.6);
@@ -132,8 +137,11 @@ export class Water {
     dir[0] /= dl; dir[2] /= dl;
     const pool = L.poolA, poolY = -22.2;
     const fall1 = this.fall(top, dir, poolY, 2.8, 8);
-    scene.add(new THREE.Mesh(ribbon(fall1, (t) => 8.5 - t * 1.5, () => [dir[2], 0, -dir[0]]), waterMat({ fall: true, color: '#9fd6ea', alpha: 0.92 })));
-    scene.add(new THREE.Mesh(disc(8, 7), waterMat({ color: '#2f86a8', alpha: 0.86, speed: 0.4 })).translateX(pool.x).translateY(poolY).translateZ(pool.z));
+    // два слоя: задний пошире и потемнее, передний с пеной — струя выглядит объёмной
+    const back = fall1.map((p, i) => [p[0] - dir[0] * 0.5, p[1], p[2] - dir[2] * 0.5]);
+    scene.add(new THREE.Mesh(ribbon(back, (t) => 9.5 - t * 1.2, () => [dir[2], 0, -dir[0]]), waterMat({ fall: true, color: '#3fa6c8', alpha: 0.7, speed: 0.8 })));
+    scene.add(new THREE.Mesh(ribbon(fall1, (t) => 8.5 - t * 1.5, () => [dir[2], 0, -dir[0]]), waterMat({ fall: true, color: '#6cc6e2', alpha: 0.9 })));
+    scene.add(new THREE.Mesh(disc(7.3, 6.4), waterMat({ color: '#2f86a8', alpha: 0.86, speed: 0.4 })).translateX(pool.x).translateY(poolY).translateZ(pool.z));
     this.addMist(new THREE.Vector3(fall1[fall1.length - 1][0], poolY, fall1[fall1.length - 1][2]), 6, 2, 70);
     // ——— ручей по террасе ———
     const spts = L.streamA.map((p) => [p[0], p[1] - 0.45, p[2]]);
@@ -150,7 +158,7 @@ export class Water {
     scene.add(new THREE.Mesh(ribbon(streamPts, 5, flowSide(streamPts)), waterMat({ color: '#3a96b4', alpha: 0.85, speed: 1.4 })));
     // ——— второй водопад: с края террасы в озеро на дне ———
     const fall2 = this.fall(edge, sd, L.lake.y, 3.2, 26);
-    scene.add(new THREE.Mesh(ribbon(fall2, (t) => 5.5 + t * 6, () => [sd[2], 0, -sd[0]], (t) => 1 - 0.45 * t), waterMat({ fall: true, color: '#a9dcef', alpha: 0.85, speed: 1.3 })));
+    scene.add(new THREE.Mesh(ribbon(fall2, (t) => 5.5 + t * 6, () => [sd[2], 0, -sd[0]], (t) => 1 - 0.45 * t), waterMat({ fall: true, color: '#6cc6e2', alpha: 0.85, speed: 1.3 })));
     const last = fall2[fall2.length - 1];
     this.addMist(new THREE.Vector3(last[0], L.lake.y, last[2]), 14, 6, 140);
     // ——— озеро на дне — светится изнутри ———

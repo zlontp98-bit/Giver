@@ -106,7 +106,11 @@ function patchedLights() {
   return s;
 }
 
+// демоверсия — стилизованный вид: скалы и трава без фото-текстур (рисованная расцветка в шейдере;
+// заодно это и дешевле для видеочипа телефона); уровень только 0 или 2 (неровности — потом)
+export const STYLIZED = true;
 export function worldMaterial(level = 0) {
+  if (STYLIZED) level = 0;
   if (level >= 1 && !TEX) TEX = {
     rock: loadTexture('cliff_side_diff.jpg', true), rockN: loadTexture('cliff_side_nor.jpg'),
     grass: loadTexture('grass_ground_diff.jpg', true), grassN: loadTexture('grass_ground_nor.jpg'),
@@ -166,6 +170,23 @@ export function worldMaterial(level = 0) {
             if (gSteep < 0.98) kg = mix(1.0, clamp(lum(texture2D(tGrass, vWP.xz * 0.25).rgb) * 2.0, 0.6, 1.4), 0.7);
             if (gSteep > 0.02) kr = 0.6 + 1.0 * rockLum(vWP, wn, 0.14);
             diffuseColor.rgb *= mix(kg, kr, gSteep);
+          #else
+            // рисованная расцветка без текстур (стиль Giver): трава — тёплые и прохладные пятна; скала — слои
+            // породы разного цвета с тёмными швами, мох на верхних гранях; чем глубже — тем холоднее
+            float big = gvNoise(vWP.xz * 0.03 + 7.0), mid = gvNoise(vWP.xz * 0.13 + vWP.y * 0.05);
+            vec3 gTint = mix(vec3(1.12, 1.07, 0.78), vec3(0.80, 1.0, 0.95), smoothstep(0.3, 0.7, big)) * (0.9 + 0.2 * mid);
+            vec3 rTint = vec3(1.0);
+            if (gSteep > 0.02) {
+              float st = vWP.y * 0.15 + (gvNoise(vWP.xz * 0.035) - 0.5) * 2.4;
+              float id = floor(st), fr = fract(st), h = gvHash(vec2(id, 3.7));
+              rTint = h < 0.4 ? vec3(1.10, 0.97, 0.80) : h < 0.75 ? vec3(0.88, 0.90, 0.97) : vec3(1.06, 0.86, 0.76);
+              rTint *= 0.80 + 0.20 * smoothstep(0.0, 0.07, fr) * smoothstep(1.0, 0.93, fr);     // швы между слоями
+              rTint *= 0.9 + 0.2 * gvNoise(vec2((vWP.x + vWP.z) * 0.5, vWP.y * 0.04));           // подтёки
+              float moss = smoothstep(0.22, 0.5, wn.y) * smoothstep(0.3, 0.6, mid);
+              rTint *= mix(vec3(1.0), vec3(0.72, 1.12, 0.58), moss);
+            }
+            diffuseColor.rgb *= mix(gTint, rTint, gSteep);
+            diffuseColor.rgb *= mix(vec3(1.0), vec3(0.76, 0.84, 1.06), smoothstep(-6.0, -150.0, vWP.y));
           #endif
         }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>

@@ -49,7 +49,7 @@ const path = require('path');
 
   // 2. «Хват» пальцем у края: повиснуть на стене под краем, спуститься, отпустить, поймать стену в падении
   await toRim(2.0, 0.7);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(1800);                  // в SwiftShader кадр медленный — дать кнопке обновиться
   ok(await page.evaluate(() => document.getElementById('bGrab').classList.contains('ready')), 'кнопка «Хват» светится у края');
   await press(2, '#bGrab');
   await page.waitForTimeout(900);

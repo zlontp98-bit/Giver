@@ -6,7 +6,8 @@
 //   интерфейс  — ui/ (полоски, кнопки, управление, экраны, FPS и «Замер»)
 //   сохранение — core/save.js
 import * as THREE from 'three';
-import { createGfx, QUALITY, QUALITY_ORDER } from './render/gfx.js';
+import { createGfx, QUALITY, QUALITY_ORDER, SUN_DIR } from './render/gfx.js';
+import { GrassField } from './world/grassfield.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { loadModels } from './render/models.js';
 import { Campfire, Fireflies } from './render/fire.js';
@@ -60,7 +61,7 @@ const state = stateFromSave(save.data, LV.id);
 save.data.state = state;
 const ents = new Entities(state);
 const inv = new Inventory(state);
-let structures = null, packs = null, builder = null, creature = null;
+let structures = null, packs = null, builder = null, creature = null, grassField = null;
 gfx.materialFactory = worldMaterial;
 const terrain = buildTerrain(worldMaterial(0));
 scene.add(terrain.group);
@@ -151,6 +152,7 @@ loadModels().then((models) => {
     { x: L.lake.x, z: L.lake.z, rx: L.lake.rx - 2, rz: L.lake.rz - 2, y: L.lake.y },
   ]);
   water = new Water(scene, L, W);
+  grassField = new GrassField(scene, physics, W, SUN_DIR, [{ x: L.settle.x, z: L.settle.z, r: 30 }, { x: L.lookout.a[0], z: L.lookout.a[2], r: 6 }]);
   player = new Player(scene, physics, props, events);
   player.anchors = props.anchors;
   // сущности уровня: записки и тайники (их картинку делает props, состояние — здесь)
@@ -301,6 +303,7 @@ function setQuality(key, remember) {
   if (!QUALITY[key]) key = 'low';
   if (remember) { gfx.over = {}; gfx.resScale = 1; }      // выбрал сам — без автоснижений
   gfx.setQuality(key);
+  if (grassField) grassField.setQuality(key);
   screens.showQuality(key);
   if (remember) { save.settings.quality = key; save.write(); slowTime = 0; }
 }
@@ -648,6 +651,7 @@ function frame(now) {
   player.animate(dt);
   const scale = gfx.pixelScale();
   props.update(clock, camera.position);
+  grassField.update(player.pos);
   terrain.update(camera.position);
   water.update(clock, scale);
   fires.forEach((f) => f.update(clock, scale));

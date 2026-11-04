@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { bakedProps } from './terrain.js';
 import { makeRng } from '../core/noise.js';
+import { fitHeight } from '../render/models.js';
 
 export const WIND = { value: 0 };            // время для ветра (общий uniform)
 const TAU = Math.PI * 2;
@@ -76,11 +77,11 @@ function crystalCluster() {
 
 // виды растений и камней из запекания → модель и как рисовать
 const KINDS = {
-  oak: { model: 'tree_oak', cell: 160, shadow: true, wind: 0.02, col: 0.32, far: 'round' },
-  pine: { model: 'tree_pineRoundA', cell: 160, shadow: true, wind: 0.015, col: 0.3, far: 'cone' },
-  pineTall: { model: 'tree_pineTallA_detailed', cell: 160, shadow: true, wind: 0.012, col: 0.28, far: 'cone' },
-  round: { model: 'tree_default', cell: 160, shadow: true, wind: 0.02, col: 0.3, far: 'round' },
-  fat: { model: 'tree_fat', cell: 160, shadow: true, wind: 0.02, col: 0.34, far: 'round' },
+  oak: { model: 'tree_oak', cell: 56, shadow: true, wind: 0.02, col: 0.32, far: 'round' },
+  pine: { model: 'tree_pineRoundA', cell: 56, shadow: true, wind: 0.015, col: 0.3, far: 'cone' },
+  pineTall: { model: 'tree_pineTallA_detailed', cell: 56, shadow: true, wind: 0.012, col: 0.28, far: 'cone' },
+  round: { model: 'tree_default', cell: 56, shadow: true, wind: 0.02, col: 0.3, far: 'round' },
+  fat: { model: 'tree_fat', cell: 56, shadow: true, wind: 0.02, col: 0.34, far: 'round' },
   deadTree: { model: 'sv-tree-trunk', cell: 160, shadow: true, col: 0.3, tint: [0.85, 0.8, 0.75] },
   bush: { model: 'plant_bushLarge', cell: 80, small: 130, wind: 0.05 },
   berry: { model: 'plant_bush', cell: 80, small: 130, wind: 0.05, berries: true },
@@ -97,6 +98,21 @@ const KINDS = {
   crystal: { geo: 'crystal', cell: 80, small: 150, glow: 0.7, color: true },
   crystalBig: { geo: 'cluster', cell: 120, glow: 0.8, color: true, col: 3, colH: 2.3 },
 };
+
+// стилизованная природа Quaternius вместо простых моделей: вид → модель q- (размер — как у прежней модели)
+const QUATERNIUS = {
+  oak: 'q-CommonTree_3', round: 'q-CommonTree_5', pine: 'q-Pine_5', pineTall: 'q-Pine_5', fat: 'q-TwistedTree_1',
+  bush: 'q-Bush_Common_Flowers', berry: 'q-Bush_Common_Flowers', rock: 'q-Rock_Medium_2',
+  grass: 'q-Grass_Common_Short', grassDry: 'q-Grass_Common_Short', fern: 'q-Fern_1',
+  flowerY: 'q-Flower_3_Single', flowerP: 'q-Flower_4_Single', flowerR: 'q-Clover_1',
+};
+const SUBST = {
+  tree_oak: 'q-CommonTree_3', tree_default: 'q-CommonTree_5', tree_fat: 'q-TwistedTree_1', tree_pineRoundA: 'q-Pine_5',
+  plant_bushLarge: 'q-Bush_Common_Flowers', plant_bush: 'q-Bush_Common_Flowers', grass_leafsLarge: 'q-Fern_1',
+  flower_redA: 'q-Clover_1', flower_yellowA: 'q-Flower_3_Single', flower_purpleA: 'q-Flower_4_Single',
+};
+// у моделей Quaternius больше треугольников — мелочь рисуем ближе (м)
+const Q_NEAR = { bush: 32, berry: 50, grass: 38, grassDry: 38, fern: 35, flowerY: 40, flowerP: 40, flowerR: 40, rock: 90 };
 
 export class Props {
   constructor(scene, L, W, models, gfx) {
@@ -285,18 +301,34 @@ export class Props {
       const p = new THREE.Vector3(...Rg.pos);
       this.W.normal(p.x, p.y, p.z, n);
       const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
-      const ring = new THREE.TorusGeometry(0.34, 0.07, 8, 18);
+      const ring = new THREE.TorusGeometry(0.4, 0.075, 8, 20);
       ring.rotateX(Math.PI / 2);                              // кольцо висит вниз от скобы
-      ring.translate(0, -0.3, 0.12);
-      parts.push({ geo: ring, m: new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), color: '#4a5058' });
+      ring.translate(0, -0.34, 0.12);
+      const free = this.W.f(p.x, p.y, p.z) > 0.8;              // кольцо вдали от скалы — висит на балке из стены
+      if (free) {
+        // балка: от стены (по горизонтали к центру скалы) до кольца, чуть вверх; под ней подкос
+        const th = Math.atan2(p.x, p.z), out = new THREE.Vector3(Math.sin(th), 0, Math.cos(th));
+        let wall = p.clone();
+        for (let d = 0; d < 12; d += 0.2) { wall = p.clone().addScaledVector(out, d); if (this.W.f(wall.x, wall.y + 0.25, wall.z) < 0) break; }
+        const a = wall.clone().setY(p.y + 0.25), b = p.clone().setY(p.y + 0.25).addScaledVector(out, -0.35), len = a.distanceTo(b) + 0.6;
+        const beam = new THREE.BoxGeometry(0.26, 0.26, len);
+        const qb = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), b.clone().sub(a).normalize());
+        parts.push({ geo: beam, m: new THREE.Matrix4().compose(a.clone().lerp(b, 0.5).addScaledVector(out, 0.3), qb, new THREE.Vector3(1, 1, 1)), color: '#6b4a2c' });
+        const st0 = wall.clone().setY(p.y - 1.6), st1 = a.clone().lerp(b, 0.55);
+        const strut = new THREE.BoxGeometry(0.18, 0.18, st0.distanceTo(st1));
+        const qs = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), st1.clone().sub(st0).normalize());
+        parts.push({ geo: strut, m: new THREE.Matrix4().compose(st0.clone().lerp(st1, 0.5), qs, new THREE.Vector3(1, 1, 1)), color: '#5a3c22' });
+        q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), out.clone().negate());
+      }
+      parts.push({ geo: ring, m: new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), color: '#c9a04a' });
       const plate = new THREE.BoxGeometry(0.42, 0.42, 0.14);
-      parts.push({ geo: plate, m: new THREE.Matrix4().compose(p.clone().addScaledVector(n, -0.12), q, new THREE.Vector3(1, 1, 1)), color: '#2e3238' });
+      if (!free) parts.push({ geo: plate, m: new THREE.Matrix4().compose(p.clone().addScaledVector(n, -0.12), q, new THREE.Vector3(1, 1, 1)), color: '#2e3238' });
       glowPos.push(p.clone().addScaledVector(n, 0.25).setY(p.y + 0.45));
       this.anchors.push({ kind: 'ring', name: Rg.name, pos: p.clone().setY(p.y - 0.3).addScaledVector(n, 0.12) });
     }
     if (!parts.length) return;
     this.solid(parts);
-    const glow = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshBasicMaterial({ color: '#8ff0ff' }), glowPos.length);
+    const glow = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.16), new THREE.MeshBasicMaterial({ color: '#ffd77a' }), glowPos.length);
     glowPos.forEach((g, i) => glow.setMatrixAt(i, new THREE.Matrix4().makeTranslation(g.x, g.y, g.z)));
     this.scene.add(glow);
     this.ringGlow = glow;
@@ -312,15 +344,18 @@ export class Props {
   scatter() {
     const data = bakedProps(), geos = { crystal: crystalGeometry(), cluster: crystalCluster() };
     for (const [kind, list] of Object.entries(data)) {
-      const k = KINDS[kind];
+      let k = KINDS[kind];
       if (!k || !list.length) continue;
       let root;
       if (k.geo) {
         const mat = glowing(new THREE.MeshLambertMaterial({ color: '#ffffff' }), k.glow);
         root = new THREE.Mesh(geos[k.geo], mat);
       } else {
-        root = this.M[k.model];
+        const qn = QUATERNIUS[kind];
+        const useQ = qn && this.M[qn] && this.M[k.model];
+        root = useQ ? fitHeight(this.M[qn].clone(), this.M[k.model]) : this.M[k.model];
         if (!root) continue;
+        if (useQ && Q_NEAR[kind]) k = { ...k, small: Math.min(k.small || 1e9, Q_NEAR[kind]) };
         root.traverse((o) => {
           if (!o.isMesh) return;
           if (k.wind) windy(o.material, k.wind);
@@ -328,7 +363,8 @@ export class Props {
         });
       }
       const meshes = this.cells(root, list, k, kind);
-      if (k.far) this.farTrees(list, k, meshes);
+      const qf = QUATERNIUS[kind] && this.M[QUATERNIUS[kind] + '_far'];
+      if (k.far) this.farTrees(list, k, meshes, qf && this.M[k.model] ? fitHeight(this.M[QUATERNIUS[kind] + '_far'].clone(), this.M[k.model]) : null);
       if (k.col) for (let i = 0; i < list.length; i += 6) this.colliders.push({ cyl: true, x: list[i], z: list[i + 2], y0: list[i + 1] - 1, y1: list[i + 1] + (k.colH ? k.colH * list[i + 4] : 4), r: k.col * list[i + 4] * 0.25 });
       if (k.grass) for (const m of meshes) { m.userData.total = m.count; this.gfx.grass.push(m); }
       if (k.berries) this.berries(list);
@@ -349,10 +385,11 @@ export class Props {
     const out = [], m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
     const tint = k.tint || [1, 1, 1];
     const crystalCols = [new THREE.Color('#5fe0ff'), new THREE.Color('#7affd9'), new THREE.Color('#c77dff')];
-    for (const idxs of groups.values()) {
+    for (const [key, idxs] of groups) {
       let cx = 0, cz = 0;
       for (const part of parts) {
         const im = new THREE.InstancedMesh(part.geometry, part.material, idxs.length);
+        im.userData.cell = key; im.userData.kind = kind;
         idxs.forEach((i, n) => {
           const s = list[i + 4];
           q.setFromAxisAngle(up, list[i + 3]);
@@ -376,26 +413,36 @@ export class Props {
   }
 
   // дальние деревья: вместо модели — простая крона (конус или шар) и ствол; ближние участки — настоящие
-  farTrees(list, k, nearMeshes) {
+  // три ступени: подробные (ближе 55 м) → упрощённые Quaternius (до 140 м) → простые кроны (дальше)
+  farTrees(list, k, nearMeshes, midRoot = null) {
+    const mid = midRoot ? this.cells(midRoot, list, { ...k, shadow: false, far: null, small: null }, 'mid') : null;
     const crown = k.far === 'cone' ? new THREE.ConeGeometry(0.42, 1.05, 6) : new THREE.IcosahedronGeometry(0.38, 0);
     crown.translate(0, k.far === 'cone' ? 0.72 : 0.78, 0);
     const trunk = new THREE.CylinderGeometry(0.05, 0.07, 0.4, 5);
     trunk.translate(0, 0.2, 0);
     const pos = [], col = [];
     const add = (g, c) => { const a = g.toNonIndexed().attributes.position.array; for (let i = 0; i < a.length; i++) pos.push(a[i]); for (let i = 0; i < a.length / 3; i++) col.push(...c); };
-    add(crown, k.far === 'cone' ? [0.18, 0.42, 0.25] : [0.3, 0.55, 0.24]);
+    add(crown, k.far === 'cone' ? [0.2, 0.36, 0.16] : [0.3, 0.46, 0.17]);
     add(trunk, [0.42, 0.28, 0.16]);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.computeVertexNormals();
     const root = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
-    const far = this.cells(root, list, { ...k, shadow: false, far: null }, 'far');
-    // пары «ближний/дальний» по одинаковым участкам
+    this.pairLods(this.cells(root, list, { ...k, shadow: false, far: null }, 'far'), nearMeshes, mid);
+  }
+
+  // пары «ближний/дальний» по одинаковым участкам (у каждого может быть несколько частей: ствол, листва)
+  pairLods(far, nearMeshes, midMeshes) {
     this.lods = this.lods || [];
-    for (let i = 0; i < far.length && i < nearMeshes.length; i++) {
-      const c = nearMeshes[i].boundingSphere.center;
-      this.lods.push({ near: nearMeshes[i], far: far[i], x: c.x, z: c.z, r: nearMeshes[i].boundingSphere.radius });
+    const cells = new Map();
+    for (const f of far) { if (!cells.has(f.userData.cell)) cells.set(f.userData.cell, []); cells.get(f.userData.cell).push(f); }
+    for (const [cell, fs] of cells) {
+      const parts = nearMeshes.filter((m) => m.userData.cell === cell);
+      if (!parts.length) continue;
+      const mid = midMeshes ? midMeshes.filter((m) => m.userData.cell === cell) : [];
+      const c = fs[0].boundingSphere.center;
+      this.lods.push({ near: parts, mid, far: fs, x: c.x, z: c.z, r: fs[0].boundingSphere.radius });
     }
   }
 
@@ -442,8 +489,16 @@ export class Props {
   }
 
   // много одинаковых моделей по списку { x, y, z, ry, s }
+  // модель по имени; простые модели природы Kenney заменяются стилизованными Quaternius того же размера
+  model(name) {
+    const qn = SUBST[name];
+    if (!qn || !this.M[qn] || !this.M[name]) return this.M[name];
+    this.qCache = this.qCache || {};
+    return this.qCache[name] || (this.qCache[name] = fitHeight(this.M[qn].clone(), this.M[name]));
+  }
+
   many(name, list, { shadow = true, scaleY = 1 } = {}) {
-    const root = this.M[name];
+    const root = this.model(name);
     if (!root || !list.length) return [];
     root.updateMatrixWorld(true);
     const out = [], m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
@@ -821,10 +876,14 @@ export class Props {
   // мелочь: показывать только рядом с камерой; крутящиеся части
   update(time, cam) {
     WIND.value = time;
-    for (const n of this.near) n.mesh.visible = Math.hypot(n.x - cam.x, n.z - cam.z) - n.r < n.max;
+    for (const n of this.near) n.mesh.visible = Math.hypot(n.x - cam.x, n.z - cam.z) - n.r < n.max * (this.gfx.lodScale || 1);
     if (this.lods) for (const l of this.lods) {
-      const near = Math.hypot(l.x - cam.x, l.z - cam.z) - l.r < 110;
-      l.near.visible = near; l.far.visible = !near;
+      const d = Math.hypot(l.x - cam.x, l.z - cam.z) - l.r;
+      const ls = this.gfx.lodScale || 1;                  // «Низкая» — подробные деревья ближе
+      const near = d < 48 * ls, mid = !near && l.mid.length && d < 140 * ls;
+      for (const m of l.near) m.visible = near;
+      for (const m of l.mid) m.visible = mid;
+      for (const m of l.far) m.visible = !near && !mid;
     }
     for (const s of this.spin) s.obj.rotation[s.axis] = time * s.speed;
     if (this.findGlow) { this.findGlow.rotation.y = 0; this.findGlow.position.y = Math.sin(time * 2.2) * 0.12; }

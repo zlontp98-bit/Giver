@@ -7,15 +7,43 @@ import { loadTexture } from './models.js';
 // fps — сколько кадров в секунду рисуем (меньше — телефон меньше греется), tex: 0 — скалы без текстур
 // (только наши цвета), 1 — текстуры цвета, 2 — плюс неровности (карты нормалей)
 export const QUALITY = {
-  low: { name: 'Низкая', fps: 30, dpr: 0.9, shadows: 0, fx: false, ao: false, smaa: false, grass: 0.25, tex: 0 },
-  medium: { name: 'Средняя', fps: 30, dpr: 1.0, shadows: 1024, fx: false, ao: false, smaa: false, grass: 0.55, tex: 1 },
-  high: { name: 'Высокая', fps: 60, dpr: 1.5, shadows: 2048, fx: true, ao: true, smaa: true, grass: 1.0, tex: 2 },
+  low: { name: 'Низкая', fps: 30, dpr: 0.9, shadows: 0, fx: false, ao: false, smaa: false, grass: 0.25, tex: 0, lod: 0.7 },
+  medium: { name: 'Средняя', fps: 30, dpr: 1.0, shadows: 1024, fx: false, ao: false, smaa: false, grass: 0.55, tex: 1, lod: 1 },
+  high: { name: 'Высокая', fps: 60, dpr: 1.5, shadows: 2048, fx: true, ao: true, smaa: true, grass: 1.0, tex: 2, lod: 1.25 },
 };
 export const QUALITY_ORDER = ['low', 'medium', 'high'];
 
 export const SUN_DIR = new THREE.Vector3(-0.42, 0.78, -0.46).normalize();   // с северо-запада, высоко — то же при запекании мира
-const HORIZON = new THREE.Color('#f2e2cc'), TOP = new THREE.Color('#5fa4e0');
+const HORIZON = new THREE.Color('#f6e4c6'), TOP = new THREE.Color('#3d8ae0');
 const FOG = new THREE.Color('#ead9c2');
+
+// «Дымка глубины»: обычная дымка по расстоянию + синеватая по высоте — чем ниже точка мира, тем сильнее
+// она тонет в цвете глубины (видно с любого места: смотришь в Бездну — дно растворяется). Для всех материалов
+// сразу: подменяем общие куски шейдеров three.js. Высоту берём из mvPosition (есть во всех шейдерах).
+THREE.ShaderChunk.fog_pars_vertex = '#ifdef USE_FOG\n varying float vFogDepth; varying float vFogY;\n#endif';
+THREE.ShaderChunk.fog_vertex = `#ifdef USE_FOG
+  vFogDepth = - mvPosition.z;
+  vFogY = (transpose(mat3(viewMatrix)) * (mvPosition.xyz - viewMatrix[3].xyz)).y;
+#endif`;
+THREE.ShaderChunk.fog_pars_fragment = `#ifdef USE_FOG
+  uniform vec3 fogColor; varying float vFogDepth; varying float vFogY;
+  #ifdef FOG_EXP2
+    uniform float fogDensity;
+  #else
+    uniform float fogNear; uniform float fogFar;
+  #endif
+#endif`;
+THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+  #else
+    float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+  #endif
+  float gvDeep = smoothstep( -12.0, -150.0, vFogY );
+  vec3 gvFogC = mix( fogColor, vec3( 0.26, 0.42, 0.55 ), gvDeep * 0.85 );
+  fogFactor = max( fogFactor, gvDeep * ( 1.0 - exp( - vFogDepth * 0.011 ) ) * 0.94 );
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, gvFogC, fogFactor );
+#endif`;
 
 export function createGfx() {
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'default', stencil: false });
@@ -113,6 +141,7 @@ export function createGfx() {
         renderer.toneMapping = THREE.NeutralToneMapping;      // бережнее к цвету, чем ACES — меньше «выцветания»
       }
       for (const im of gfx.grass) im.count = Math.max(1, Math.floor(im.userData.total * q.grass));
+      gfx.lodScale = q.lod || 1;                              // как далеко рисовать подробные деревья и мелочь
       if (gfx.rockMeshes.length) {
         if (!gfx.terrainMats) gfx.terrainMats = [0, 1, 2].map((lv) => (gfx.materialFactory || terrainMaterial)(lv));
         for (const m of gfx.rockMeshes) m.material = gfx.terrainMats[q.tex];
