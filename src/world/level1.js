@@ -347,6 +347,16 @@ export function buildLevel1(W) {
       if (p) resources.push({ id: `res:glowshroom${resources.length}`, type: 'glowshroom', pos: p });
     }
   }
+  // логово скальника — на дне, на западе, подальше от озера, осыпи и конца троса; вокруг гуще светогрибы
+  const beast = { home: [0, 0, 0], leash: 38 };
+  {
+    const a = 4.54, r = 120, x = Math.sin(a) * r, z = Math.cos(a) * r;
+    beast.home = [x, groundY(x, z, -150, 80), z];
+    for (let k = 0; k < 4; k++) {
+      const b = k * 1.7 + 0.4, q = 6 + k * 2.2, px = x + Math.cos(b) * q, pz = z + Math.sin(b) * q;
+      resources.push({ id: `res:glowden${k}`, type: 'glowshroom', pos: [px, groundY(px, pz, -150, 80), pz], rich: 1 });
+    }
+  }
   // завал в штреке к каморке у зала шахты — разобрать можно только киркой
   const rubble = [];
   {
@@ -401,7 +411,7 @@ export function buildLevel1(W) {
   ];
   return {
     ledges: { path: pathLedge, ab: abLedge, b: bLedges, mineIn, mineOut, sw: swLedges, e: eLedges, scree }, zips, rings, finds, notes,
-    secrets: { wfRoom, crevRoom, crevY, mineRoom, thC }, resources, stations, rubble,
+    secrets: { wfRoom, crevRoom, crevY, mineRoom, thC }, resources, stations, rubble, beast,
     W, Rn, settle, spawn, lookout, river: W.river, rimFall, poolA, streamA, lake, gate, mine, hall, ramp, pillars, village, mineLamps,
     campD: { center: dc, th: thD }, secret: { th: thS, pos: at(thS, Rs + 9, -120) }, areas, bench,
     thW, aX, aZ, topA,

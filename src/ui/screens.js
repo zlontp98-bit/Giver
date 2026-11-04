@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 
 export class Screens {
   // ctx: { game, hud, input, save, version, onStart, onRespawn, onToCamp, onQuality, onShowFps,
-  //        onBench, onBenchAbort, benchRunning() }
+  //        onBench, onBenchAbort, benchRunning(), onPause, onReset }
   constructor(ctx) {
     this.ctx = ctx;
     const { game, hud, save } = ctx;
@@ -23,7 +23,10 @@ export class Screens {
     };
     $('pause').onclick = () => this.setPaused(true);
     $('resume').onclick = () => this.setPaused(false);
-    $('restart').onclick = () => location.reload();
+    // «Заново» — новая игра: сначала спросить (пропадут рюкзак, снаряжение, постройки, находки и место в мире)
+    $('restart').onclick = () => { hud.screen('sPause', false); hud.screen('sConfirm', true); };
+    $('confirmNo').onclick = () => { hud.screen('sConfirm', false); hud.screen('sPause', true); };
+    $('confirmYes').onclick = () => ctx.onReset();
     $('toCamp').onclick = () => { this.setPaused(false); ctx.onToCamp(); };
     $('respawn').onclick = () => { hud.screen('sDead', false); ctx.onRespawn(); game.running = true; document.body.classList.add('playing'); };
     $('again').onclick = () => location.reload();
@@ -52,6 +55,7 @@ export class Screens {
       if ($('sBag').classList.contains('show')) { $('bagClose').onclick(); return true; }
       if ($('sCraft').classList.contains('show')) { $('craftClose').onclick(); return true; }
       if ($('sBench').classList.contains('show')) { $('benchOk').onclick(); return true; }
+      if ($('sConfirm').classList.contains('show')) { $('confirmNo').onclick(); return true; }
       if (!game.running && !game.paused) return false;
       this.setPaused(!game.paused);
       return true;
@@ -68,6 +72,7 @@ export class Screens {
     if (game.won || (!game.running && !game.paused)) return;
     game.paused = p;
     game.running = !p;
+    if (p && this.ctx.onPause) this.ctx.onPause();
     hud.screen('sPause', p);
     document.body.classList.toggle('playing', !p);
     input.reset();
@@ -79,6 +84,9 @@ export class Screens {
   showFpsSetting(on) {
     document.querySelectorAll('[data-fps] button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.v === '1') === on)));
   }
+
+  // на старте: есть сохранённая игра — кнопка «Продолжить»
+  showResume(on) { if (on) $('go').textContent = 'Продолжить'; }
 
   showDead(text) {
     $('deadTxt').textContent = text;

@@ -9,3 +9,4 @@ android/local.properties
 src/assets.gen.js
 tools/out/
 src/world/baked.gen.js
+apk/

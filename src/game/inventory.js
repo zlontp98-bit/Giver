@@ -11,6 +11,8 @@ export const ITEMS = {
   glowshroom: { name: 'Светогрибы', stack: 10 },
   ingot: { name: 'Железный слиток', stack: 10 },
   stew: { name: 'Похлёбка', stack: 5, eat: { stamina: 100, health: 30 } },
+  platform: { name: 'Платформа', stack: 3, place: 'platform' },
+  shelter: { name: 'Укрытие', stack: 1, place: 'shelter' },
 };
 
 // снаряжение: что даёт (gear-флаги читает герой — player.gear)
@@ -28,6 +30,8 @@ export const RECIPES = [
   { id: 'spikes', name: 'Шипы на ботинки', at: 'workbench', need: { ingot: 2, wood: 1 }, gear: 'spikes' },
   { id: 'cable', name: 'Стальной трос', at: 'workbench', need: { ingot: 3, wood: 1 }, gear: 'cable' },
   { id: 'grapple', name: 'Крюк-кошка', at: 'workbench', need: { ingot: 2, stone: 2 }, gear: 'grapple' },
+  { id: 'platform', name: 'Платформа', at: 'workbench', need: { wood: 3 }, give: { platform: 1 }, what: 'поставить на стене или над краем и отдохнуть; разберёшь — вернётся' },
+  { id: 'shelter', name: 'Укрытие', at: 'workbench', need: { wood: 4, stone: 1 }, give: { shelter: 1 }, what: 'временный лагерь на ровной земле: сорвёшься — вернёшься сюда' },
   { id: 'stew', name: 'Похлёбка', at: 'furnace', need: { mushroom: 1, glowshroom: 1, berry: 2 }, alt: { mushroom: 2, berry: 2 }, give: { stew: 1 } },
 ];
 

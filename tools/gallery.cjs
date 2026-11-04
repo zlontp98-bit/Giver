@@ -63,8 +63,18 @@ const q = process.argv[2] || 'medium', only = process.argv[3];
     ['c7-glowshroom', look('glowshroom', [1.8, 1.4], 0.25), 3000],
   ];
   if (only === 'craft') shots.splice(0, shots.length, ...craftShots);
+  // выживание (этап 5): node tools/gallery.cjs medium survive
+  const PRE = `const g = window.__giver, P = g.player, V = P.pos.constructor, W = g.W, L = g.L; const blank = () => ({ mx: 0, my: 0, jump: false, hook: false, grab: false }); const run = (n, f) => { g.game.running = false; for (let k = 0; k < n; k++) g.step(f ? f(k) : blank()); g.game.running = true; };`;
+  const surviveShots = [
+    ['v1-pack', `() => { ${PRE} g.state.inv = { wood: 4, ore: 3 }; const x = L.aX - 20, z = L.aZ - 6, gy = g.physics.ground(x, 50, z, 1, 400).y; const pk = g.packs.drop(new V(x, gy + 0.2, z)); g.state.inv = { platform: 1 }; P.spawn(pk.pos.clone().add(new V(5, 1, -5))); g.cam.yaw = Math.atan2(5, -5) - 0.35; g.cam.pitch = 0.22; g.cam.pitch = 0.05; }`, 4000],
+    ['v2-ghost', `() => { ${PRE} g.state.inv = { platform: 2, shelter: 1 }; const th = 2.2, y = -70, rr = W.pitR(Math.cos(th), Math.sin(th), y) - 0.6; P.spawn(new V(0, -60, 0)); P.pos.set(Math.sin(th) * rr, y, Math.cos(th) * rr); P.state = 'air'; P.vel.set(0, 0, 0); P.peakY = y; P.facing = th; P.tryGrab(); run(20); g.startBuild('platform'); g.buildTick(); g.cam.yaw = th + Math.PI + 0.8; g.cam.pitch = 0.35; }`, 3500],
+    ['v3-platform', `() => { ${PRE} g.act(); const i = blank(); i.grab = true; run(1, () => i); run(80); g.cam.yaw = Math.atan2(P.pos.x, P.pos.z) + Math.PI + 0.8; g.cam.pitch = 0.3; }`, 4000],
+    ['v4-shelter', `() => { ${PRE} P.spawn(new V(L.spawn[0] - 8, 3, L.spawn[2] + 6)); P.facing = 0.3; run(5); g.startBuild('shelter'); g.buildTick(); g.act(); P.spawn(new V(L.spawn[0] - 8 - 3.5, 3, L.spawn[2] + 6 - 1.5)); g.cam.yaw = Math.atan2(-Math.sin(0.3) * 2.6 - 3.5, -Math.cos(0.3) * 2.6 - 1.5); g.cam.pitch = 0.2; }`, 3500],
+    ['v5-beast', `() => { ${PRE} const C = g.creature; C.reset(); C.calm = 0; P.spawn(C.pos.clone().add(new V(7, 1, 3))); run(80); g.cam.yaw = Math.atan2(P.pos.x - C.pos.x, P.pos.z - C.pos.z) + 0.6; g.cam.pitch = 0.12; g.game.running = false; }`, 5000],
+  ];
+  if (only === 'survive') shots.splice(0, shots.length, ...surviveShots);
   for (const [name, setup, wait] of shots) {
-    if (only && !['hook', 'secret', 'craft'].includes(only) && !name.includes(only)) continue;
+    if (only && !['hook', 'secret', 'craft', 'survive'].includes(only) && !name.includes(only)) continue;
     await page.evaluate(typeof setup === 'string' ? `(${setup})()` : `(${setup.toString()})()`);
     await page.waitForTimeout(wait || 2600);
     if (/mine|hall|crevice/.test(name)) await page.waitForTimeout(6000);    // дымка в шахте темнеет постепенно

@@ -16,6 +16,7 @@ export class Hud {
     this.btnGrab = $('bGrab'); this.grabLbl = $('grabLbl');
     this.btnAct = $('bAct'); this.actLbl = $('actLbl');
     this.reticle = $('reticle'); this.retD = $('retD');
+    this.packChip = $('packChip'); this.packArrow = $('packArrow'); this.packD = $('packD');
     this.track = $('track'); this.me = $('me');
     this.toastTimer = 0;
     this.last = {};
@@ -64,6 +65,14 @@ export class Hud {
     this.cls('noShards', this.starChip, 'hide', !game.shardsTotal);
     this.set('me', this.me.style, 'left', `${Math.max(0, Math.min(100, (y / this.bottomY) * 100)).toFixed(1)}%`);
     if (this.campMarks) for (const m of this.campMarks) this.cls(`camp${m.c.index}`, m.el, 'done', m.c.reached);
+    // где лежит рюкзак после гибели: стрелка (вперёд — вверх) и расстояние, ▲/▼ — выше или ниже
+    const pk = game.pack;
+    this.cls('packShow', this.packChip, 'hide', !pk);
+    if (pk) {
+      this.set('packAng', this.packArrow.style, 'transform', `rotate(${Math.round((pk.ang * 180) / Math.PI / 5) * 5}deg)`);
+      const dy = Math.round(pk.dy);
+      this.set('packD', this.packD, 'textContent', `рюкзак ${Math.round(pk.d)} м${Math.abs(dy) > 4 ? (dy > 0 ? ` ▲${dy}` : ` ▼${-dy}`) : ''}`);
+    }
     // кнопка «Хват»: светится у стены; синяя, когда висим на руках
     const climbing = player.state === 'climb' || (player.state === 'mantle' && player.mantle.then === 'climb');
     this.cls('grabReady', this.btnGrab, 'ready', !climbing && player.canGrab);
@@ -72,7 +81,11 @@ export class Hud {
     // кнопка «Действие»: появляется у записки и сундука
     const it = player.interact;
     this.cls('actShow', this.btnAct, 'show', !!it);
-    if (it) this.set('actLbl', this.actLbl, 'textContent', it.label || (it.kind === 'note' ? 'читать' : 'открыть'));
+    if (it) {
+      const lbl = it.label || (it.kind === 'note' ? 'читать' : 'открыть');
+      this.set('actLbl', this.actLbl, 'textContent', lbl);
+      this.cls('actLong', this.btnAct, 'long', lbl.split(' ').some((w) => w.length > 8) || lbl.length > 16);
+    }
     // кнопка крюка: светится, когда есть кольцо; синяя, когда висим на верёвке или тросе
     const onRope = !!player.rope || player.state === 'zip' || !!player.hook || (player.state === 'mantle' && (player.mantle.then === 'rope' || player.mantle.then === 'zip'));
     this.cls('ready', this.btnHook, 'ready', !onRope && !!player.target);

@@ -12,9 +12,12 @@ import { loadModels } from './render/models.js';
 import { Campfire, Fireflies } from './render/fire.js';
 import { SdfWorld, PIT_DEPTH } from './world/sdf.js';
 import { LEVELS, START_LEVEL } from './world/levels.js';
-import { Structures } from './world/structures.js';
+import { Structures, STRUCTURES } from './world/structures.js';
 import { Entities } from './game/entities.js';
 import { stateFromSave } from './game/state.js';
+import { Packs } from './game/packs.js';
+import { Builder } from './game/building.js';
+import { Creature } from './game/creature.js';
 import { Inventory, ITEMS, GEAR, RECIPES, BAG_SLOTS } from './game/inventory.js';
 import { buildTerrain, worldMaterial } from './world/terrain.js';
 import { Props } from './world/props.js';
@@ -55,7 +58,7 @@ const state = stateFromSave(save.data, LV.id);
 save.data.state = state;
 const ents = new Entities(state);
 const inv = new Inventory(state);
-let structures = null;
+let structures = null, packs = null, builder = null, creature = null;
 gfx.materialFactory = worldMaterial;
 const terrain = buildTerrain(worldMaterial(0));
 scene.add(terrain.group);
@@ -78,7 +81,12 @@ const events = {
   hurt: (dmg) => { hud.hurt(); if (dmg >= 10 && dmg < 1000) hud.message(`Ушибся: −${dmg}`); },
   died: (why) => {
     game.running = false;
-    screens.showDead(`${why === 'abyss' ? 'Сорвался в бездну.' : 'Слишком сильно ударился.'} Вернёшься: ${game.campName}.`);
+    if (builder && builder.active) stopBuild();
+    const pk = packs.drop(player.pos);
+    if (pk) bagPop();
+    const cause = why === 'abyss' ? 'Сорвался в бездну.' : why === 'beast' ? 'Скальник загрыз.' : 'Слишком сильно ударился.';
+    screens.showDead(`${cause} Вернёшься: ${game.campName}.${pk ? ` Вещи остались в рюкзаке там, где ты упал (${Math.max(0, Math.round(-pk.pos.y))} м) — вернись за ними. Снаряжение — с тобой.` : ''}`);
+    savePlayer(true);
   },
   berries: () => hud.message('Ягоды! Силы полные'),
   caught: () => hud.message('Успел схватиться!'),
@@ -119,7 +127,10 @@ function visibleObjects() {
 const bench = new Benchmark();
 const screens = new Screens({
   game, hud, input, save, version: VERSION,
-  onStart: () => hud.message('Ты в посёлке на краю Бездны. Пройди к смотровой площадке — оттуда тропа вниз', 6, true),
+  onStart: () => (game.started = true) && (game.resumed ? hud.message(`Продолжаем: ${areaName(player.pos.x, player.pos.y, player.pos.z)}, ${Math.max(0, Math.round(-player.pos.y))} м`, 4)
+    : hud.message('Ты в посёлке на краю Бездны. Пройди к смотровой площадке — оттуда тропа вниз', 6, true)),
+  onPause: () => savePlayer(true),
+  onReset: () => resetWorld(),
   onRespawn: () => respawn(),
   onToCamp: () => respawn(),
   onQuality: (q) => setQuality(q, true),
@@ -150,17 +161,29 @@ loadModels().then((models) => {
   for (const { r, view } of props.rubbleList) ents.add({ id: r.id, kind: 'rubble', pos: new THREE.Vector3(...r.pos), reach: 1.2, cleared: false }, view);
   player.gear = state.gear;
   structures = new Structures(scene, W, physics, ents);
-  ents.restoreDynamic((e) => (e.kind === 'structure' ? structures.view() : null));
+  packs = new Packs(scene, ents, inv, physics, state);
+  builder = new Builder(scene, structures, physics);
+  creature = new Creature(scene, physics, L.beast.home, L.beast.leash, {
+    alert: () => hud.message('Шорох… Скальник заметил тебя! Беги бегом, лезь на стену или в воду', 3),
+    lost: () => hud.message('Скальник отстал и ушёл к логову', 2.2),
+    bite: (dmg, dir) => {
+      player.hurt(dmg, 'beast');
+      if (player.dead) return;
+      player.vel.set(dir.x * 6, 4.5, dir.z * 6);          // отбросило
+      player.state = 'air'; player.onBox = null; player.peakY = player.pos.y;
+    },
+  });
+  ents.add(creature.e);
+  ents.restoreDynamic((e) => (e.kind === 'structure' ? structures.view() : e.kind === 'pack' ? packs.view() : null));
   player.ents = ents;
   player.interactTest = (e) => !!ACTIONS[e.kind] && ACTIONS[e.kind].can(e);
   player.labelOf = (e) => ACTIONS[e.kind].label(e);
   countFinds();
   bagPop();
   player.hints = makeHints();
-  player.spawn(start);
-  player.facing = Math.PI;                                  // лицом к Бездне (на юг)
-  cam.yaw = 0;
   props.camps.forEach((c, i) => { c.index = i; });
+  restorePlayer();
+  screens.showResume(game.resumed);
   for (const f of props.fires) fires.push(new Campfire(scene, f, { light: false }));
   for (const c of props.camps) if (!c.village) flies.push(new Fireflies(scene, c.pos, 14, 7));
   motes = new Motes(scene);
@@ -175,7 +198,7 @@ loadModels().then((models) => {
   camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
-  window.__giver = { THREE, terrain, state, ents, structures, game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact), inv, openBag, openCraft };
+  window.__giver = { THREE, terrain, state, ents, structures, packs, builder, startBuild: (t) => startBuild(t), creature, buildTick: () => buildTick(), savePlayer, safePos, game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact), inv, openBag, openCraft };
 });
 
 // подсказки по пути (каждая — один раз)
@@ -186,14 +209,78 @@ function makeHints() {
     { pos: v([L.aX - 40, -24, L.aZ - 10]), r: 14, text: 'Лесная окраина. Подойди к краю или к скале и жми «Хват» — можно лезть по любой крутой скале' },
     { pos: v(L.gate.inner), r: 12, text: 'Проход на второй ярус завален. Он откроется в следующих версиях' },
     { pos: v(L.mine[0]), r: 10, text: 'Заброшенная шахта. Внутри темно — фонарик на шапке зажжётся сам' },
+    { pos: v(L.beast.home), r: 34, text: 'Светогрибы здесь растут гуще… и что-то шуршит в камнях. Осторожно' },
   ].map((h) => ({ ...h, shown: false }));
 }
 window.addEventListener('resize', () => gfx.resize());
 
 function respawn() {
   player.spawn(game.checkpoint);
+  creature.reset();
+  safePos.copy(player.pos);
   hud.message(`Ты снова: ${game.campName}`);
+  savePlayer(true);
 }
+
+// ——— полное сохранение героя: место (только там, где стоял на опоре), силы, лагерь, пройденное, время ———
+// Пишется раз в 5 с игры, при паузе, когда игру свернули, после смерти и действий. Новая игра — «Заново» в паузе.
+const safePos = new THREE.Vector3();
+let saveTick = 0, resetting = false;
+function savePlayer(force) {
+  if (resetting || !player || bench.running || !game.started) return;      // до «Играть» не пишем (не затереть чужое)
+  const sp = state.player;
+  sp.pos = player.dead ? null : [safePos.x, safePos.y, safePos.z];
+  sp.health = player.dead ? 100 : Math.round(player.health);
+  sp.stamina = player.dead ? 100 : Math.round(player.stamina);
+  sp.checkpoint = [game.checkpoint.x, game.checkpoint.y, game.checkpoint.z];
+  sp.campName = game.campName;
+  sp.camps = props.camps.filter((c) => c.reached).map((c) => c.index);
+  sp.elapsed = game.elapsed;
+  sp.bottom = !!game.reachedBottom;
+  if (force !== false) save.write();
+}
+// подсказка, где рюкзак: угол от взгляда камеры (по часовой) и расстояние
+function packHint() {
+  const e = packs && packs.nearest(player.pos);
+  if (!e) { game.pack = null; return; }
+  const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z, fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw);
+  game.pack = { d: Math.hypot(dx, dz, e.pos.y - player.pos.y), dy: e.pos.y - player.pos.y, ang: Math.atan2(-dx * fz + dz * fx, dx * fx + dz * fz) };
+}
+function trackSafe(dt) {
+  if (player.state === 'ground' && player.health < 100) {
+    for (const e of structures.list('shelter')) if (e.pos.distanceTo(player.pos) < 3.5) { player.health = Math.min(100, player.health + 20 * dt); break; }
+  }
+  if (player.state === 'ground' && !player.dead && !player.inWater) { safePos.copy(player.pos); packs.safe = safePos; }
+  if ((saveTick += dt) >= 5) { saveTick = 0; savePlayer(true); }
+}
+function restorePlayer() {
+  const sp = state.player;
+  if (sp.checkpoint) { game.checkpoint.set(...sp.checkpoint); game.campName = sp.campName || game.campName; }
+  for (const i of sp.camps || []) if (props.camps[i]) props.camps[i].reached = true;
+  game.elapsed = sp.elapsed || 0;
+  game.reachedBottom = !!sp.bottom;
+  game.resumed = !!sp.pos;
+  if (sp.pos) {
+    player.spawn(new THREE.Vector3(...sp.pos));
+    player.health = Math.max(20, sp.health ?? 100);
+    player.stamina = sp.stamina ?? 100;
+    cam.yaw = Math.atan2(player.pos.x, player.pos.z);       // спиной к середине Бездны — она перед глазами
+  } else {
+    player.spawn(start);
+    player.facing = Math.PI;                                  // лицом к Бездне (на юг)
+    cam.yaw = 0;
+  }
+  safePos.copy(player.pos);
+  packs.safe = safePos;
+}
+// начать заново: стереть мир и героя (рекорды, настройки и замеры остаются)
+function resetWorld() {
+  resetting = true;
+  save.data.state = null;
+  save.write();
+  location.reload();
+}
+window.addEventListener('pagehide', () => savePlayer(true));
 
 function setQuality(key, remember) {
   if (!QUALITY[key]) key = 'low';
@@ -281,6 +368,46 @@ ACTIONS.rubble = {
     hud.message('Завал разобран — проход в каморку открыт', 3);
   },
 };
+ACTIONS.pack = {
+  label: () => 'забрать рюкзак', can: () => true,
+  run(e) {
+    const r = packs.take(e);
+    const names = Object.entries(r.got).map(([id, n]) => `${ITEMS[id].name.toLowerCase()} ${n}`).join(', ');
+    hud.message(!names ? 'Рюкзак полон — места нет, вещи лежат дальше' : `Забрал: ${names}${r.left ? '. Не всё влезло — остальное лежит здесь' : ''}`, 3.5);
+    bagPop();
+    savePlayer(true);
+  },
+};
+ACTIONS.place = {
+  label: () => '', can: () => true,
+  run() {
+    const M = builder.mode;
+    if (!M.check.ok) { hud.message(`Здесь нельзя: ${M.check.why}`, 2.5); return; }
+    const type = M.type, e = builder.place();
+    if (!e) return;
+    inv.take(type, 1);
+    if (type === 'shelter') {
+      ents.set(e, { prev: { pos: game.checkpoint.toArray(), name: game.campName } });
+      game.checkpoint.copy(e.pos); game.campName = SHELTER_NAME;
+      hud.message('Укрытие стоит. Сорвёшься — вернёшься сюда. Рядом с ним заживают ушибы', 4);
+    } else hud.message(player.state === 'climb' ? 'Платформа под ногами — отпусти «Хват», постой и отдохни' : 'Платформа стоит', 3);
+    stopBuild();
+    savePlayer(true);
+  },
+};
+ACTIONS.structure = {
+  label: (e) => `разобрать ${e.type === 'shelter' ? 'укрытие' : 'платформу'}`,
+  can: (e) => !(player.onBox && e.view && player.onBox === e.view.col),     // не из-под своих ног
+  run(e) {
+    if (!inv.room(e.type)) { hud.message('Рюкзак полон — некуда сложить', 2.5); return; }
+    if (e.type === 'shelter' && game.campName === SHELTER_NAME && e.prev) { game.checkpoint.set(...e.prev.pos); game.campName = e.prev.name; }
+    structures.remove(e);
+    inv.add(e.type, 1);
+    bagPop();
+    hud.message(`${e.type === 'shelter' ? 'Укрытие' : 'Платформа'} снова в рюкзаке`, 2.5);
+    savePlayer(true);
+  },
+};
 ACTIONS.station = {
   label: (e) => (e.type === 'workbench' ? 'верстак' : 'печь'), can: () => true,
   run(e) { openCraft(e.type); },
@@ -300,7 +427,7 @@ function pauseFor(id) { game.running = false; input.reset(); hud.screen(id, true
 function resumeFrom(id) { hud.screen(id, false); if (!game.paused && !game.won && !player.dead) game.running = true; bagPop(); }
 function openBag() {
   const grid = Object.entries(state.inv).map(([id, n]) => {
-    const it = ITEMS[id], eat = it.eat ? `<button type="button" data-eat="${id}">съесть</button>` : '';
+    const it = ITEMS[id], eat = it.eat ? `<button type="button" data-eat="${id}">съесть</button>` : it.place ? `<button type="button" data-place="${id}">поставить</button>` : '';
     return `<div><b>${n}</b>${it.name}${eat}</div>`;
   });
   for (let i = grid.length; i < BAG_SLOTS; i++) grid.push('<div></div>');
@@ -308,6 +435,7 @@ function openBag() {
   const g = Object.keys(state.gear).map((id) => `<li><b>${GEAR[id].name}</b> — ${GEAR[id].what}</li>`);
   $('bagGear').innerHTML = g.join('') || '<li>пока ничего — сделай у верстака кирку</li>';
   $('bagGrid').querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
+  $('bagGrid').querySelectorAll('[data-place]').forEach((b) => { b.onclick = () => { resumeFrom('sBag'); startBuild(b.dataset.place); }; });
   if (!$('sBag').classList.contains('show')) pauseFor('sBag');
 }
 function eat(id) {
@@ -326,7 +454,7 @@ function openCraft(at) {
   const rows = RECIPES.filter((r) => r.at === at).map((r) => {
     const c = inv.canCraft(r), need = r.need, alt = r.alt;
     const fmt = (nd) => Object.entries(nd).map(([id, n]) => `${ITEMS[id].name} ${Math.min(inv.count(id), n)}/${n}`).join(' · ');
-    const what = r.gear ? GEAR[r.gear].what : r.give.stew ? 'силы до конца и +30 здоровья' : 'для снаряжения';
+    const what = r.what || (r.gear ? GEAR[r.gear].what : r.give.stew ? 'силы до конца и +30 здоровья' : 'для снаряжения');
     return `<li><span>${r.name}<small>${fmt(need)}${alt ? ' (или ' + fmt(alt) + ')' : ''} — ${what}</small></span>` +
       `<button type="button" data-r="${r.id}" ${c.ok ? '' : 'disabled'}>${c.ok ? 'сделать' : c.why}</button></li>`;
   });
@@ -341,7 +469,25 @@ function craft(id) {
   hud.message(r.gear ? `${r.name}: ${GEAR[r.gear].what}` : `Готово: ${r.name}`, 4);
   openCraft(craftAt);
 }
-$('bBag').onclick = () => { if (game.running) openBag(); };
+$('bBag').onclick = () => { if (!game.running) return; if (builder && builder.active) stopBuild(); else openBag(); };
+// ——— постройки: выбрать место и поставить (см. game/building.js) ———
+function startBuild(type) {
+  builder.start(type);
+  $('bagN').textContent = '✕ отмена';
+  once('build', 'Выбери место: зелёный — можно, красный — нельзя. «Действие» — поставить, кнопка рюкзака — отмена');
+}
+// каждый кадр в режиме постройки: призрак на месте, кнопка «Действие» — «поставить» или «нельзя» (почему — сообщением)
+function buildTick() {
+  if (!builder.active) return;
+  builder.update(player, (t) => structures.count(t));
+  const c = builder.mode.check;
+  player.interact = { kind: 'place', item: null, label: c.ok ? 'поставить' : 'нельзя' };
+  if (!c.ok && c.why !== lastWhy) hud.message(`${STRUCTURES[builder.mode.type].name}: ${c.why}`, 1.6);
+  lastWhy = c.ok ? '' : c.why;
+}
+function stopBuild() { builder.cancel(); player.interact = null; bagPop(); }
+const SHELTER_NAME = 'укрытие';
+let lastWhy = '';
 $('bagClose').onclick = () => resumeFrom('sBag');
 $('craftClose').onclick = () => resumeFrom('sCraft');
 
@@ -431,6 +577,7 @@ function stepOnce(inp) {
   courseTime += STEP;
   player.carry();
   player.update(STEP, inp, cam.yaw);
+  creature.update(STEP, player);
 }
 
 function frame(now) {
@@ -459,8 +606,10 @@ function frame(now) {
       first = false;
       acc -= STEP;
     }
+    buildTick();
     if (inp.act && player.interact) doAct(player.interact);
     regrow(dt);
+    trackSafe(dt);
     adaptQuality(raw);
     const area = L.areas.find((a) => a.test(player.pos.x, player.pos.y, player.pos.z));
     if (area.id !== game.area) { game.area = area.id; hud.message(`${area.name} · глубина ${Math.max(0, Math.round(-player.pos.y))} м`, 3); }
@@ -479,6 +628,7 @@ function frame(now) {
   motes.update(clock, player.pos, atmosphere.glow, Math.min(1, Math.max(0, (-player.pos.y - 25) / 60)), scale);
   cam.update(dt, inp, player, game.running);
   gfx.follow(player.pos);
+  packHint();
   hud.update(dt, player, game, camera);
   gfx.render(dt);
   const cpu = performance.now() - t0;
