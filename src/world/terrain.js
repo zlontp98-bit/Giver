@@ -140,6 +140,19 @@ export function worldMaterial(level = 0) {
             vec3 tx = texture2D(t, p.zy * s).xyz * 2.0 - 1.0, ty = texture2D(t, p.xz * s).xyz * 2.0 - 1.0, tz = texture2D(t, p.xy * s).xyz * 2.0 - 1.0;
             tx = vec3(tx.xy + n.zy, abs(tx.z) * n.x); ty = vec3(ty.xy + n.xz, abs(ty.z) * n.y); tz = vec3(tz.xy + n.xy, abs(tz.z) * n.z);
             return normalize(tx.zyx * b.x + ty.xzy * b.y + tz.xyz * b.z); }
+          // Скала почти всегда — стена: для неё хватает двух боковых проекций (zy и xy) вместо трёх, а там, где
+          // скалы нет (ровная трава), её не читаем вовсе — и наоборот. Вид тот же, выборок текстур в 2–4 раза меньше.
+          float rockLum(vec3 p, vec3 n, float s){
+            vec2 b = pow(abs(n.xz), vec2(4.0)); b /= max(1e-4, b.x + b.y);
+            return lum(texture2D(tRock, p.zy * s).rgb) * b.x + lum(texture2D(tRock, p.xy * s).rgb) * b.y; }
+          vec3 sideNormal(sampler2D t, vec3 p, vec3 n, float s){
+            vec2 b = pow(abs(n.xz), vec2(4.0)); b /= max(1e-4, b.x + b.y);
+            vec3 tx = texture2D(t, p.zy * s).xyz * 2.0 - 1.0, tz = texture2D(t, p.xy * s).xyz * 2.0 - 1.0;
+            tx = vec3(tx.xy + n.zy, abs(tx.z) * n.x); tz = vec3(tz.xy + n.xy, abs(tz.z) * n.z);
+            return normalize(tx.zyx * b.x + tz.xyz * b.y); }
+          vec3 topNormal(sampler2D t, vec3 p, vec3 n, float s){
+            vec3 ty = texture2D(t, p.xz * s).xyz * 2.0 - 1.0;
+            return normalize(vec3(ty.x + n.x, abs(ty.z) * n.y, ty.y + n.z)); }
         #endif
         float gSteep;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -149,9 +162,10 @@ export function worldMaterial(level = 0) {
           float detail = gvNoise(vWP.xz * 1.3 + vWP.y * 0.8) * 0.6 + gvNoise(vec2(vWP.x - vWP.z, vWP.y) * 0.45) * 0.4;
           diffuseColor.rgb *= 0.86 + 0.28 * detail;
           #ifdef TEX_COLOR
-            float lg = lum(texture2D(tGrass, vWP.xz * 0.25).rgb);
-            float lr = lum(triColor(tRock, vWP, wn, 0.14));
-            diffuseColor.rgb *= mix(mix(1.0, clamp(lg * 2.0, 0.6, 1.4), 0.7), 0.6 + 1.0 * lr, gSteep);
+            float kg = 1.0, kr = 1.0;
+            if (gSteep < 0.98) kg = mix(1.0, clamp(lum(texture2D(tGrass, vWP.xz * 0.25).rgb) * 2.0, 0.6, 1.4), 0.7);
+            if (gSteep > 0.02) kr = 0.6 + 1.0 * rockLum(vWP, wn, 0.14);
+            diffuseColor.rgb *= mix(kg, kr, gSteep);
           #endif
         }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -160,7 +174,10 @@ export function worldMaterial(level = 0) {
         #ifdef TEX_NORMAL
         {
           vec3 wn = normalize(vWN);
-          vec3 nW = normalize(mix(mix(wn, triNormal(tGrassN, vWP, wn, 0.25), 0.6), triNormal(tRockN, vWP, wn, 0.14), gSteep));
+          vec3 ng = wn, nr = wn;
+          if (gSteep < 0.98) ng = mix(wn, topNormal(tGrassN, vWP, wn, 0.25), 0.6);
+          if (gSteep > 0.02) nr = sideNormal(tRockN, vWP, wn, 0.14);
+          vec3 nW = normalize(mix(ng, nr, gSteep));
           normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
         }
         #endif`)

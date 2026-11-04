@@ -34,7 +34,7 @@ const OUT = path.resolve(__dirname, 'out');
   await page.click('#resume');
   await page.waitForTimeout(1500);
   const fpsTxt = await page.textContent('#fps');
-  check('счётчик FPS', /^\d+ FPS · кадр \d+ мс · ЦП [\d.]+ мс$/.test(fpsTxt) && await page.isVisible('#fps'), fpsTxt);
+  check('счётчик FPS', /^\d+ FPS · кадр [\d.]+ мс · ЦП [\d.]+ мс\n△ \d+ тыс · вызовов \d+ · объектов \d+ · \d+×\d+ \(\d+%\)$/.test(fpsTxt) && await page.isVisible('#fps'), fpsTxt);
   await page.screenshot({ path: path.join(OUT, 'fps-counter.png') });
   // «Замер»
   const before = await page.evaluate(() => window.__giver.player.pos.toArray());

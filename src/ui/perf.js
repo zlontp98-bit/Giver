@@ -22,7 +22,13 @@ export class FpsMeter {
     this.n++; this.time += interval; this.cpu += cpuMs;
     if (this.time < 0.5) return;
     const fps = this.n / this.time;
-    this.el.textContent = `${fps.toFixed(0)} FPS · кадр ${((1000 * this.time) / this.n).toFixed(0)} мс · ЦП ${(this.cpu / this.n).toFixed(1)} мс`;
+    let txt = `${fps.toFixed(0)} FPS · кадр ${((1000 * this.time) / this.n).toFixed(1)} мс · ЦП ${(this.cpu / this.n).toFixed(1)} мс`;
+    // подробности: треугольники, вызовы отрисовки, видимые объекты, размер рендера (и доля чёткости)
+    if (this.details) {
+      const d = this.details();
+      txt += `\n△ ${(d.tris / 1000).toFixed(0)} тыс · вызовов ${d.calls} · объектов ${d.objects} · ${d.w}×${d.h} (${Math.round(d.scale * 100)}%)`;
+    }
+    this.el.textContent = txt;
     this.reset();
   }
 }
@@ -43,6 +49,7 @@ export class Benchmark {
     this.t = 0;
     this.intervals = [];
     this.cpu = [];
+    this.tris = 0; this.calls = 0;
     this.saved = { pos: player.pos.clone(), facing: player.facing, yaw: cam.yaw, pitch: cam.pitch };
     this.running = true;
   }
@@ -65,10 +72,11 @@ export class Benchmark {
     return u;
   }
 
-  record(raw, cpuMs) {
+  record(raw, cpuMs, st) {
     if (this.t < this.warmup) return;
     this.intervals.push(raw);
     this.cpu.push(cpuMs);
+    if (st) { this.tris += st.tris; this.calls += st.calls; }
   }
 
   get done() { return this.t >= this.duration; }
@@ -90,6 +98,7 @@ export class Benchmark {
       fps: n / time,
       low1: 1 / p99,
       cpu: this.cpu.reduce((x, y) => x + y, 0) / n,
+      tris: this.tris / n, calls: this.calls / n,
       frames: n,
       seconds: time,
     };

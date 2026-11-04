@@ -38,6 +38,11 @@ export class Screens {
       document.body.classList.add('bench');
       ctx.onBench();
     };
+    $('benchDetail').onclick = () => {
+      hud.screen('sPause', false);
+      document.body.classList.add('bench');
+      ctx.onBench('detail');
+    };
     $('benchOk').onclick = () => { hud.screen('sBench', false); hud.screen('sPause', true); };
 
     // кнопка «Назад» на Android: пауза / продолжить (во время «Замера» — прервать его)
@@ -87,7 +92,7 @@ export class Screens {
     setTimeout(() => this.ctx.hud.screen('sWin', true), 1200);
   }
 
-  benchProgress(secondsLeft) { $('benchLeft').textContent = `${secondsLeft} с`; }
+  benchProgress(secondsLeft, label) { $('benchLeft').textContent = label ? `${label} · ${secondsLeft} с` : `${secondsLeft} с`; }
 
   // r — итог замера (см. Benchmark.finish), history — прошлые замеры (новые сверху)
   showBench(r, history) {
@@ -98,7 +103,14 @@ export class Screens {
     $('bLoad').textContent = `${Math.min(100, Math.round((100 * r.cap) / r.fps))}%`;
     $('bLow').textContent = `${r.low1.toFixed(0)} FPS`;
     $('bCpu').textContent = `${r.cpu.toFixed(1)} мс`;
-    $('bInfo').textContent = `Экран ${r.screen}, рисуем ${r.canvas} · видеочип: ${r.gpu} · ядер: ${r.cores || '?'} · версия ${r.version}`;
+    $('bInfo').textContent = `Экран ${r.screen}, рисуем ${r.canvas} · видеочип: ${r.gpu} · ядер: ${r.cores || '?'} · версия ${r.version}${r.load ? ' · загрузка ' + r.load : ''}`;
+    // подробный замер: таблица вариантов (что сколько стоит на этом телефоне)
+    const tb = $('bTable');
+    tb.hidden = !r.detail;
+    if (r.detail) {
+      tb.innerHTML = '<tr><th>Графика</th><th>FPS</th><th>1%</th><th>ЦП</th><th>△ тыс</th><th>вызовов</th></tr>' + r.detail.map((d) =>
+        `<tr><td>${d.name}</td><td><b>${d.fps.toFixed(0)}</b></td><td>${d.low1.toFixed(0)}</td><td>${d.cpu.toFixed(1)}</td><td>${(d.tris / 1000).toFixed(0)}</td><td>${d.calls.toFixed(0)}</td></tr>`).join('');
+    }
     $('bHist').innerHTML = history.slice(1, 6).map((h) =>
       `<li>${h.date} · ${h.qualityName} · <b>${h.fps.toFixed(0)} FPS</b> · ${h.version}</li>`).join('') || '<li>Это первый замер</li>';
     this.ctx.hud.screen('sBench', true);

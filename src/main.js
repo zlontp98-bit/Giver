@@ -35,6 +35,9 @@ const SEED = 20261102;
 const STEP = 1 / 60;
 const $ = (id) => document.getElementById(id);
 
+const T0 = performance.now();                     // время загрузки и подготовки — в «Замер» и паузу
+const loadMarks = [];
+const mark = (name) => loadMarks.push([name, performance.now()]);
 installFonts();
 const save = new Save();
 const hud = new Hud();
@@ -45,6 +48,7 @@ const { scene, camera } = gfx;
 const LV = LEVELS[START_LEVEL];
 const W = new SdfWorld(LV.seed);
 const L = LV.build(W);
+mark('план мира');
 // состояние игры (данные, без картинки) и сущности: записки, тайники, ресурсы, рюкзаки, постройки
 const state = stateFromSave(save.data, LV.id);
 save.data.state = state;
@@ -54,6 +58,7 @@ gfx.materialFactory = worldMaterial;
 const terrain = buildTerrain(worldMaterial(0));
 scene.add(terrain.group);
 gfx.rockMeshes.push(...terrain.meshes);
+mark('скалы');
 const start = new THREE.Vector3(...L.spawn);
 const areaName = (x, y, z) => L.areas.find((a) => a.test(x, y, z)).name;
 
@@ -101,6 +106,14 @@ const cam = new FollowCamera(camera, {
 }, start);
 const input = new Input($('layer'), hud);
 const meter = new FpsMeter($('fps'));
+meter.details = () => ({ ...gfx.stats(), objects: visibleObjects() });
+// сколько объектов на сцене видимо (раз в полсекунды — когда счётчик пересчитывает)
+function visibleObjects() {
+  let n = 0;
+  const walk = (o) => { if (!o.visible) return; if (o.isMesh || o.isPoints || o.isLine) n++; for (const c of o.children) walk(c); };
+  walk(scene);
+  return n;
+}
 const bench = new Benchmark();
 const screens = new Screens({
   game, hud, input, save, version: VERSION,
@@ -109,12 +122,13 @@ const screens = new Screens({
   onToCamp: () => respawn(),
   onQuality: (q) => setQuality(q, true),
   onShowFps: (on) => setShowFps(on, true),
-  onBench: () => startBench(),
+  onBench: (mode) => startBench(mode),
   onBenchAbort: () => endBench(false),
   benchRunning: () => bench.running,
 });
 
 loadModels().then((models) => {
+  mark('модели');
   props = new Props(scene, L, W, models, gfx);
   // вода: в заводи и в озере можно брести по грудь, падение в воду не ранит
   physics = new Physics(W, props.colliders, [
@@ -144,7 +158,11 @@ loadModels().then((models) => {
   hud.setupTrack(-PIT_DEPTH, props.camps.filter((c) => !c.village), areaName);
   setQuality(save.settings.quality || 'low', false);
   setShowFps(!!save.settings.showFps, false);
+  mark('предметы и физика');
   gfx.precompile();                                         // все шейдеры — сразу, пока на экране меню
+  mark('шейдеры');
+  game.loadInfo = loadSummary();
+  document.querySelectorAll('.ver').forEach((el) => { el.textContent = `версия ${VERSION} · загрузка ${game.loadInfo}`; });
   camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
@@ -170,6 +188,7 @@ function respawn() {
 
 function setQuality(key, remember) {
   if (!QUALITY[key]) key = 'low';
+  if (remember) { gfx.over = {}; gfx.resScale = 1; }      // выбрал сам — без автоснижений
   gfx.setQuality(key);
   screens.showQuality(key);
   if (remember) { save.settings.quality = key; save.write(); slowTime = 0; }
@@ -238,17 +257,57 @@ function win() {
   screens.showWin(game.elapsed, game.shards, game.shardsTotal, isRecord ? 'Новый рекорд!' : `Рекорд: ${fmtTime(save.records.abyss.time)}`);
 }
 
+function loadSummary() {
+  let prev = T0;
+  const parts = loadMarks.map(([n, t]) => { const d = ((t - prev) / 1000).toFixed(1); prev = t; return `${n} ${d}`; });
+  return `${((prev - T0) / 1000).toFixed(1)} с (${parts.join(', ')})`;
+}
+
 // ——— «Замер» скорости: облёт по маршруту без ограничения кадров ———
-function startBench() {
-  bench.start(L.bench.map((p) => new THREE.Vector3(p[0], p[1], p[2])), player, cam);
+// «Подробный» — тот же облёт по 15 с в шести вариантах графики: видно, что именно нагружает телефон
+const DETAIL = [
+  { name: 'Низкая', q: 'low' },
+  { name: 'Средняя', q: 'medium' },
+  { name: 'Средняя без текстур скал', q: 'medium', over: { tex: 0 } },
+  { name: 'Средняя без теней', q: 'medium', over: { shadows: 0 } },
+  { name: 'Высокая', q: 'high' },
+  { name: 'Высокая без AO', q: 'high', over: { ao: false } },
+];
+let detail = null;
+const benchPath = () => L.bench.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+function applyVariant(v) { gfx.over = v.over || {}; gfx.setResScale(1); gfx.setQuality(v.q); }
+function startBench(mode) {
+  if (mode === 'detail') {
+    detail = { i: 0, results: [], savedQ: gfx.quality, savedScale: gfx.resScale };
+    bench.duration = 15;
+    applyVariant(DETAIL[0]);
+  } else { detail = null; bench.duration = 30; gfx.setResScale(1); }
+  bench.start(benchPath(), player, cam);
 }
 function endBench(completed) {
   const r = bench.finish(player, cam);
+  if (detail) {
+    const D = detail;
+    if (completed && r) {
+      D.results.push({ name: DETAIL[D.i].name, fps: r.fps, low1: r.low1, cpu: r.cpu, tris: r.tris, calls: r.calls });
+      if (++D.i < DETAIL.length) { applyVariant(DETAIL[D.i]); bench.start(benchPath(), player, cam); return; }
+    }
+    gfx.over = {}; gfx.setQuality(D.savedQ); gfx.setResScale(D.savedScale);
+    detail = null;
+    if (!completed || !D.results.length) { screens.showBench(null, save.data.bench); return; }
+    const best = D.results[1] || D.results[0];
+    const sum = { ...best, detail: D.results, qualityName: 'подробный замер', cap: QUALITY.medium.fps };
+    finishBenchInfo(sum);
+    return;
+  }
   if (!completed || !r) { screens.showBench(null, save.data.bench); return; }
+  finishBenchInfo(r);
+}
+function finishBenchInfo(r) {
   const q = QUALITY[gfx.quality], c = gfx.renderer.domElement, d = new Date(), dpr = window.devicePixelRatio || 1;
   const two = (n) => String(n).padStart(2, '0');
   Object.assign(r, {
-    quality: gfx.quality, qualityName: q.name, cap: q.fps, gpu: gpuName(gfx.renderer),
+    quality: gfx.quality, qualityName: r.qualityName || q.name, cap: r.cap || q.fps, gpu: gpuName(gfx.renderer), load: game.loadInfo,
     canvas: `${c.width}×${c.height}`,
     screen: `${Math.round(window.innerWidth * dpr)}×${Math.round(window.innerHeight * dpr)}`,
     cores: navigator.hardwareConcurrency || 0, version: VERSION,
@@ -319,24 +378,41 @@ function frame(now) {
   const cpu = performance.now() - t0;
   meter.frame(raw, cpu);
   if (bench.running) {
-    bench.record(raw, cpu);
-    screens.benchProgress(bench.secondsLeft);
+    bench.record(raw, cpu, gfx.stats());
+    screens.benchProgress(bench.secondsLeft, detail ? `${detail.i + 1}/${DETAIL.length} ${DETAIL[detail.i].name}` : '');
     if (bench.done) endBench(true);
   }
 }
 
 // если телефон не тянет — сами снижаем качество (один раз за уровень)
+// Телефон долго не успевает (3 с подряд кадры заметно длиннее нужного) — сами разгружаем: сначала чёткость
+// рендера 100 → 85 → 70%, на «Высокой» потом убираем AO, и только потом режим ниже. Если долго всё успевает
+// (12 с), чёткость понемногу возвращается; если сразу снова тормозит — 90 с больше не пробуем.
+let fastTime = 0, raiseLock = 0, lastRaise = -100;
 function adaptQuality(raw) {
   if (window.__noAdapt) return;
   slowCheck += raw;
   const limit = 1.6 / gfx.fps;                    // кадр заметно дольше положенного — тормозит
   slowTime = raw > limit ? slowTime + raw : Math.max(0, slowTime - raw * 0.5);
-  if (slowCheck < 4 || slowTime < 3) return;
-  const i = QUALITY_ORDER.indexOf(gfx.quality);
-  if (i <= 0) return;
-  setQuality(QUALITY_ORDER[i - 1], true);
-  hud.message(`Графика: ${QUALITY[QUALITY_ORDER[i - 1]].name.toLowerCase()} — чтобы не тормозило`, 3);
-  slowTime = 0;
+  fastTime = raw < 1.15 / gfx.fps ? fastTime + raw : 0;
+  raiseLock = Math.max(0, raiseLock - raw);
+  if (slowCheck >= 4 && slowTime >= 3) {
+    slowTime = 0; fastTime = 0;
+    if (clock - lastRaise < 6) raiseLock = 90;     // только что подняли — и опять тормозит
+    if (gfx.resScale > 0.75) { gfx.setResScale(Math.round((gfx.resScale - 0.15) * 100) / 100); hud.message(`Чёткость ${Math.round(gfx.resScale * 100)}% — чтобы не тормозило`, 2); return; }
+    if (gfx.q && gfx.q.ao && !gfx.over.ao) { gfx.over = { ...gfx.over, ao: false }; gfx.setQuality(gfx.quality); hud.message('Без затенения (AO) — чтобы не тормозило', 2); return; }
+    const i = QUALITY_ORDER.indexOf(gfx.quality);
+    if (i <= 0) return;
+    gfx.over = {};
+    gfx.setResScale(1);
+    setQuality(QUALITY_ORDER[i - 1], true);
+    hud.message(`Графика: ${QUALITY[QUALITY_ORDER[i - 1]].name.toLowerCase()} — чтобы не тормозило`, 3);
+    return;
+  }
+  if (fastTime > 12 && gfx.resScale < 1 && raiseLock <= 0) {
+    fastTime = 0; lastRaise = clock;
+    gfx.setResScale(Math.min(1, Math.round((gfx.resScale + 0.15) * 100) / 100));
+  }
 }
 
 function installFonts() {

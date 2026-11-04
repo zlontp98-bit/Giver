@@ -23,6 +23,7 @@ export function createGfx() {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;          // тени пересчитываем не каждый кадр (см. render)
   document.body.prepend(renderer.domElement);
+  renderer.info.autoReset = false;               // считаем все проходы кадра вместе (с эффектами их несколько)
 
   const scene = new THREE.Scene();
   scene.background = FOG.clone();
@@ -89,12 +90,14 @@ export function createGfx() {
 
   const gfx = {
     renderer, scene, camera, sun, hemi, sky, quality: null, grass: [], terrainMesh: null, terrainMats: null, rockMeshes: [],
-    shadowTick: 0, shadowDirty: true, lastSun: '',
+    shadowTick: 0, shadowDirty: true, lastSun: '', over: {}, resScale: 1, q: null,
     get fps() { return (QUALITY[gfx.quality] || QUALITY.low).fps; },
     setQuality(key) {
-      const q = QUALITY[key] || QUALITY.low;
+      // gfx.over — временные отличия от режима (для «подробного замера»: без текстур скал, без теней, без AO)
+      const q = { ...(QUALITY[key] || QUALITY.low), ...gfx.over };
       gfx.quality = key;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr));
+      gfx.q = q;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr) * gfx.resScale);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.shadowMap.enabled = q.shadows > 0;
       sun.castShadow = q.shadows > 0;
@@ -116,6 +119,19 @@ export function createGfx() {
       }
       scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.needsUpdate = true; }); });
       gfx.shadowDirty = true;
+    },
+    // чёткость рендера (доля от режима): при долгих просадках её снижает main.js (adaptQuality)
+    setResScale(sc) {
+      gfx.resScale = sc;
+      const q = gfx.q || QUALITY.low;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.dpr) * sc);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      if (composer && q.fx) composer.setSize(window.innerWidth, window.innerHeight);
+    },
+    // что нарисовано в последнем кадре (все проходы вместе): треугольники, вызовы отрисовки, размер рендера
+    stats() {
+      const r = renderer.info.render, c = renderer.domElement;
+      return { tris: r.triangles, calls: r.calls, points: r.points, w: c.width, h: c.height, scale: gfx.resScale };
     },
     resize() {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -143,6 +159,7 @@ export function createGfx() {
     },
     render(dt) {
       if (gfx.lost) return;
+      renderer.info.reset();
       sky.position.copy(camera.position);
       sky.scale.setScalar(Math.min(1, (camera.far * 0.9) / 1100));
       sky.material.uniforms.fogCol.value.copy(scene.fog.color);

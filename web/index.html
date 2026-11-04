@@ -107,7 +107,7 @@
   #bGrab.ready { background: radial-gradient(circle at 50% 40%, #7fe8ff, #2fa8d0 70%); box-shadow: 0 0 0 4px rgba(127, 232, 255, .4), 0 0 22px rgba(63, 208, 255, .7); }
   #bGrab.ready small, #bGrab.on small { color: var(--cream); }
   #bGrab.on { background: #3d8bd4; box-shadow: 0 0 0 4px rgba(120, 190, 255, .45); }
-  #bAct { width: 70px; height: 70px; right: 196px; bottom: 112px; display: none; }
+  #bAct { width: 70px; height: 70px; right: 116px; bottom: 192px; display: none; }   /* над «Хватом», с зазором — чтобы не промахнуться */
   #bAct.show { display: flex; background: radial-gradient(circle at 50% 40%, #ffe08a, #e0a63a 70%); box-shadow: 0 0 0 4px rgba(255, 215, 106, .4), 0 0 22px rgba(255, 196, 80, .7); animation: actPulse 1.4s ease-in-out infinite; }
   #bAct.show small { color: var(--cream); }
   #bAct .ico { width: 28px; height: 28px; }
@@ -152,6 +152,10 @@
   .stats span { font-size: 12px; color: #5d7080; }
   .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   /* счётчик FPS и «Замер» */
+  .btable { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
+  .btable th, .btable td { text-align: left; padding: 2px 4px; border-bottom: 1px solid rgba(0,0,0,.08); }
+  .btable td b { font-size: 14px; }
+  #fps { white-space: pre; text-align: center; line-height: 1.35; }
   #fps { position: fixed; left: 50%; bottom: calc(6px + var(--b)); transform: translateX(-50%); z-index: 5; padding: 3px 10px; border-radius: 999px;
     background: var(--glass-strong); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap; }
   body:not(.playing):not(.bench) #fps { display: none; }
@@ -262,6 +266,7 @@
     <div class="lbl">Счётчик FPS</div>
     <div class="seg" data-fps><button type="button" data-v="0">Нет</button><button type="button" data-v="1">Да</button></div>
     <button class="secondary" id="bench" type="button">Замер скорости · 30 с</button>
+    <button class="secondary" id="benchDetail" type="button">Подробный замер · 1.5 мин</button>
   </div>
   <p class="small">«Замер» пролетит по первому ярусу и покажет, сколько кадров в секунду тянет телефон на этой графике. <span class="ver"></span></p>
   <div class="acts">
@@ -293,6 +298,7 @@
     <div><b id="bLow">—</b><span>самые медленные кадры (1%)</span></div>
     <div><b id="bCpu">—</b><span>работа процессора на кадр</span></div>
   </div>
+  <table class="btable" id="bTable" hidden></table>
   <p class="small" id="bInfo"></p>
   <div class="lbl">Прошлые замеры</div>
   <ul class="hist" id="bHist"></ul>
