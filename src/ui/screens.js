@@ -107,6 +107,7 @@ export class Screens {
     // подробный замер: таблица вариантов (что сколько стоит на этом телефоне)
     const tb = $('bTable');
     tb.hidden = !r.detail;
+    $('sBench').classList.toggle('detail', !!r.detail);
     if (r.detail) {
       tb.innerHTML = '<tr><th>Графика</th><th>FPS</th><th>1%</th><th>ЦП</th><th>△ тыс</th><th>вызовов</th></tr>' + r.detail.map((d) =>
         `<tr><td>${d.name}</td><td><b>${d.fps.toFixed(0)}</b></td><td>${d.low1.toFixed(0)}</td><td>${d.cpu.toFixed(1)}</td><td>${(d.tris / 1000).toFixed(0)}</td><td>${d.calls.toFixed(0)}</td></tr>`).join('');

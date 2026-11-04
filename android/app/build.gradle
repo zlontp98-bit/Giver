@@ -24,7 +24,7 @@ android {
         applicationId giverTest ? "com.giver.game.test" : "com.giver.game"
         minSdk 26
         targetSdk 34
-        versionCode 10
+        versionCode 11
         versionName "0.5-a4"
         manifestPlaceholders = [
             appLabel: giverTest ? "@string/app_name_test" : "@string/app_name",
