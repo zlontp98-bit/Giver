@@ -139,9 +139,8 @@ export class Props {
   }
 
   // сундук открыт — огонёк гаснет
-  takeFind(f) {
-    f.taken = true;
-    this.findGlow.setMatrixAt(f.idx, new THREE.Matrix4().makeScale(0, 0, 0));
+  hideFindGlow(idx) {
+    this.findGlow.setMatrixAt(idx, new THREE.Matrix4().makeScale(0, 0, 0));
     this.findGlow.instanceMatrix.needsUpdate = true;
   }
 

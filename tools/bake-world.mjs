@@ -9,12 +9,12 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { SdfWorld } from '../src/world/sdf.js';
-import { buildLevel1, LEVEL_SEED } from '../src/world/level1.js';
+import { LEVELS, START_LEVEL } from '../src/world/levels.js';
 import { scatterRules, bakedLights } from '../src/world/scatter.js';
 import { makeRng, clamp, smoothstep } from '../src/core/noise.js';
 
 const OUT = 'src/world/baked.gen.js';
-const SOURCES = ['src/world/sdf.js', 'src/world/level1.js', 'src/world/scatter.js', 'src/core/noise.js', 'tools/bake-world.mjs'];
+const SOURCES = ['src/world/sdf.js', 'src/world/levels.js', 'src/world/level1.js', 'src/world/scatter.js', 'src/core/noise.js', 'tools/bake-world.mjs'];
 export const SUN = norm([-0.42, 0.78, -0.46]);      // откуда светит солнце (северо-запад, высоко) — то же в render/gfx.js
 
 const CELL = 2.5, CH = 48, X0 = -300, Y0 = -230, Z0 = -420, NX = 5, NY = 3, NZ = 6;   // куски 120 м
@@ -34,8 +34,9 @@ export async function bakeWorld({ force = false, fast = false } = {}) {
   if (!force && existsSync(OUT) && readFileSync(OUT, 'utf8').slice(0, 200).includes(key)) return { cached: true, key };
 
   const t0 = Date.now();
-  const W = new SdfWorld(LEVEL_SEED);
-  const L = buildLevel1(W);
+  const LV = LEVELS[START_LEVEL];
+  const W = new SdfWorld(LV.seed);
+  const L = LV.build(W);
   const ctx = makeCtx(W, L, fast);
   const meshes = [];
   let tris = 0, verts = 0;
@@ -44,11 +45,12 @@ export async function bakeWorld({ force = false, fast = false } = {}) {
     const m = surfaceNets(W, ci, cj, ck);
     if (!m) continue;
     shade(ctx, m);
+    orient(m);
     meshes.push(m);
     tris += m.idx.length / 3; verts += m.pos.length / 3;
     // грубая копия для дали: клетка 5 м, 4 раза меньше треугольников
     const g = surfaceNets(W, ci, cj, ck, { cell: CELL * 2, ch: CH / 2, pad: 1, sink: 0.35 });
-    if (g) { shade(ctx, g); meshes.push(g); lo += g.idx.length / 3; }
+    if (g) { shade(ctx, g); orient(g); meshes.push(g); lo += g.idx.length / 3; }
   }
   const tSN = Date.now();
   for (const m of heightTiles(W, ctx)) { meshes.push(m); tris += m.idx.length / 3; verts += m.pos.length / 3; }
@@ -142,6 +144,22 @@ function surfaceNets(W, ci, cj, ck, lod = { cell: CELL, ch: CH, pad: 0, sink: 0 
     idx[t] = remap[v];
   }
   return { kind: PAD ? 'lo' : 'sn', o: [ox, oy, oz], pos, idx };
+}
+
+// каждый треугольник — лицом из скалы: по нормалям его вершин (нормаль SDF). Проверка по четырёхугольнику
+// иногда ошибалась на изломах — получались треугольники «изнанкой» к камере, то есть дырочки в скалах.
+function orient(m) {
+  const P = m.pos, Nn = m.nor, I = m.idx;
+  let flipped = 0;
+  for (let t = 0; t < I.length; t += 3) {
+    const a = I[t], b = I[t + 1], c = I[t + 2];
+    const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+    const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const gx = Nn[a * 3] + Nn[b * 3] + Nn[c * 3], gy = Nn[a * 3 + 1] + Nn[b * 3 + 1] + Nn[c * 3 + 1], gz = Nn[a * 3 + 2] + Nn[b * 3 + 2] + Nn[c * 3 + 2];
+    if (nx * gx + ny * gy + nz * gz < 0) { I[t + 1] = c; I[t + 2] = b; flipped++; }
+  }
+  m.flipped = flipped;
 }
 
 // ——— свет и цвет вершин ———

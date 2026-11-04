@@ -24,6 +24,10 @@ export class Physics {
         this.grid.get(k).push(c);
       }
   }
+  // убрать столкновение (постройку разобрали, рюкзак подобрали)
+  removeCollider(c) {
+    for (const arr of this.grid.values()) { const i = arr.indexOf(c); if (i >= 0) arr.splice(i, 1); }
+  }
   near(x, z) { return this.grid.get(key(x, z)) || EMPTY; }
 
   f(x, y, z) { return this.W.f(x, y, z); }

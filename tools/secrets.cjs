@@ -49,9 +49,9 @@ const path = require('path');
       badge: () => { const th = L.secret.th, Rs = R(th, -118); P.spawn(at(th, Rs - 14, -118)); return [at(th, Rs - 7, -120), at(th, Rs + 4, -120), new V(L.secret.pos[0], -120, L.secret.pos[2])]; },
       crystal: () => { const I = L.lake.island; P.spawn(new V(L.lake.x - L.lake.rx - 3, -203, L.lake.z)); return [new V(L.lake.x - L.lake.rx + 6, -207, L.lake.z), new V(I.x - 3, -207, I.z), new V(I.x, -206, I.z)]; },
     };
-    for (const f of g.props.finds) {
+    for (const f of g.ents.byKind('find')) {
       try {
-        const pts = routes[f.id]();
+        const pts = routes[f.id.replace('find:', '')]();
         for (let k = 0; k < 10; k++) step(blank());
         let wade = false;
         for (const p of pts) { walkTo(p, 0.9); if (P.inWater) wade = true; }
@@ -64,7 +64,7 @@ const path = require('path');
     }
     // записки: подойти и прочитать
     let read = 0;
-    for (const n of g.props.notes) {
+    for (const n of g.ents.byKind('note')) {
       for (const [dx, dz] of [[1.6, 0], [-1.6, 0], [0, 1.6], [0, -1.6]]) {
         P.spawn(n.pos.clone().add(new V(dx, 1, dz)));
         if (P.state === 'ground' && Math.abs(P.pos.y - n.pos.y) < 1.5) break;
@@ -74,7 +74,7 @@ const path = require('path');
       else out.push(`  записка ${n.id} «${n.title}»: кнопка не появилась, герой ${P.pos.toArray().map((v) => v.toFixed(1))} ${P.state}, записка ${n.pos.toArray().map((v) => v.toFixed(1))}`);
       g.game.running = false;
     }
-    ok(read === g.props.notes.length, `записки прочитаны: ${read} из ${g.props.notes.length}`);
+    ok(read === g.ents.byKind('note').length, `записки прочитаны: ${read} из ${g.ents.byKind('note').length}`);
     // падение в озеро с высоты 60 м — без урона
     P.spawn(new V(L.lake.x, -140, L.lake.z)); P.pos.set(L.lake.x - 4, -145, L.lake.z); P.state = 'air'; P.peakY = -145; P.vel.set(0, 0, 0); P.health = 100;
     for (let k = 0; k < 600 && P.state === 'air'; k++) step(blank());
@@ -85,7 +85,7 @@ const path = require('path');
   // перезапуск: найденное сохранилось?
   await page.reload();
   await page.waitForFunction(() => window.__giver && window.__giver.player, null, { timeout: 90000 });
-  const after = await page.evaluate(() => { const g = window.__giver; return { finds: g.props.finds.filter((f) => f.taken).length, notes: g.props.notes.filter((n) => n.read).length, shards: g.game.shards + '/' + g.game.shardsTotal }; });
+  const after = await page.evaluate(() => { const g = window.__giver; return { finds: g.ents.byKind('find').filter((f) => f.taken).length, notes: g.ents.byKind('note').filter((n) => n.read).length, shards: g.game.shards + '/' + g.game.shardsTotal }; });
   console.log((after.finds === 5 && after.notes === 8 ? '✓ ' : '✗ ') + 'после перезапуска: ' + JSON.stringify(after));
   console.log(errs.join('\n') || 'без ошибок на странице');
   await browser.close();

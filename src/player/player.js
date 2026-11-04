@@ -251,18 +251,9 @@ export class Player {
         if (this.state === 'ground') this.health = Math.min(100, this.health + 20 * dt);
       }
     }
-    // рядом записка или сундук — кнопка «Действие» (что именно — решает main.js)
-    let best = null, bd = 2.3;
-    for (const n of this.props.notes || []) {
-      const d = Math.hypot(n.pos.x - p.x, n.pos.z - p.z);
-      if (d < bd && Math.abs(n.pos.y - p.y) < 2.2) { bd = d; best = { kind: 'note', item: n }; }
-    }
-    for (const f of this.props.finds || []) {
-      if (f.taken) continue;
-      const d = Math.hypot(f.pos.x - p.x, f.pos.z - p.z);
-      if (d < bd && Math.abs(f.pos.y - p.y) < 2.2) { bd = d; best = { kind: 'find', item: f }; }
-    }
-    this.interact = this.state === 'ground' || this.state === 'climb' ? best : null;
+    // рядом что-то, с чем можно что-то сделать (записка, сундук, ресурс…) — кнопка «Действие» (решает main.js)
+    const it = this.ents && this.state !== 'air' && this.state !== 'rope' && this.state !== 'zip' ? this.ents.nearest(p, 2.3, 2.2, this.interactTest) : null;
+    this.interact = it ? { kind: it.kind, item: it, label: this.labelOf ? this.labelOf(it) : '' } : null;
     for (const h of this.hints) {
       if (!h.shown && Math.hypot(h.pos.x - p.x, h.pos.z - p.z) < h.r && Math.abs(h.pos.y - p.y) < 4) { h.shown = true; this.ev.hint(h.text); }
     }

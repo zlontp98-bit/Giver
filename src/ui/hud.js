@@ -72,7 +72,7 @@ export class Hud {
     // кнопка «Действие»: появляется у записки и сундука
     const it = player.interact;
     this.cls('actShow', this.btnAct, 'show', !!it);
-    if (it) this.set('actLbl', this.actLbl, 'textContent', it.kind === 'note' ? 'читать' : 'открыть');
+    if (it) this.set('actLbl', this.actLbl, 'textContent', it.label || (it.kind === 'note' ? 'читать' : 'открыть'));
     // кнопка крюка: светится, когда есть кольцо; синяя, когда висим на верёвке или тросе
     const onRope = !!player.rope || player.state === 'zip' || !!player.hook || (player.state === 'mantle' && (player.mantle.then === 'rope' || player.mantle.then === 'zip'));
     this.cls('ready', this.btnHook, 'ready', !onRope && !!player.target);

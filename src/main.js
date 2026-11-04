@@ -11,7 +11,10 @@ import { Atmosphere } from './render/atmosphere.js';
 import { loadModels } from './render/models.js';
 import { Campfire, Fireflies } from './render/fire.js';
 import { SdfWorld, PIT_DEPTH } from './world/sdf.js';
-import { buildLevel1, LEVEL_SEED } from './world/level1.js';
+import { LEVELS, START_LEVEL } from './world/levels.js';
+import { Structures } from './world/structures.js';
+import { Entities } from './game/entities.js';
+import { stateFromSave } from './game/state.js';
 import { buildTerrain, worldMaterial } from './world/terrain.js';
 import { Props } from './world/props.js';
 import { Water } from './world/water.js';
@@ -39,8 +42,14 @@ const gfx = createGfx();
 const { scene, camera } = gfx;
 
 // ——— мир: «формула мира» (для физики) и запечённые куски (для картинки) ———
-const W = new SdfWorld(LEVEL_SEED);
-const L = buildLevel1(W);
+const LV = LEVELS[START_LEVEL];
+const W = new SdfWorld(LV.seed);
+const L = LV.build(W);
+// состояние игры (данные, без картинки) и сущности: записки, тайники, ресурсы, рюкзаки, постройки
+const state = stateFromSave(save.data, LV.id);
+save.data.state = state;
+const ents = new Entities(state);
+let structures = null;
 gfx.materialFactory = worldMaterial;
 const terrain = buildTerrain(worldMaterial(0));
 scene.add(terrain.group);
@@ -115,13 +124,15 @@ loadModels().then((models) => {
   water = new Water(scene, L, W);
   player = new Player(scene, physics, props, events);
   player.anchors = props.anchors;
-  // прогресс: найденные сундуки и прочитанные записки (сохраняются между запусками)
-  const prog = save.data.progress || (save.data.progress = { finds: [], notes: [] });
-  prog.finds = prog.finds || []; prog.notes = prog.notes || [];
-  for (const f of props.finds) if (prog.finds.includes(f.id)) props.takeFind(f);
-  for (const n of props.notes) if (prog.notes.includes(n.id)) n.read = true;
-  game.shardsTotal = props.finds.length;
-  game.shards = props.finds.filter((f) => f.taken).length;
+  // сущности уровня: записки и тайники (их картинку делает props, состояние — здесь)
+  for (const n of props.notes) ents.add({ id: `note:${n.id}`, kind: 'note', pos: n.pos, title: n.title, text: n.text, read: false });
+  for (const f of props.finds) ents.add({ id: `find:${f.id}`, kind: 'find', pos: f.pos, name: f.name, where: f.where, taken: false, idx: f.idx }, { sync: (e) => { if (e.taken) props.hideFindGlow(e.idx); } });
+  structures = new Structures(scene, W, physics, ents);
+  ents.restoreDynamic((e) => (e.kind === 'structure' ? structures.view() : null));
+  player.ents = ents;
+  player.interactTest = (e) => !!ACTIONS[e.kind] && ACTIONS[e.kind].can(e);
+  player.labelOf = (e) => ACTIONS[e.kind].label(e);
+  countFinds();
   player.hints = makeHints();
   player.spawn(start);
   player.facing = Math.PI;                                  // лицом к Бездне (на юг)
@@ -137,7 +148,7 @@ loadModels().then((models) => {
   camera.position.set(start.x, start.y + 4, start.z - 9);
   document.body.classList.add('ready');
   requestAnimationFrame(frame);
-  window.__giver = { game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact) };
+  window.__giver = { THREE, terrain, state, ents, structures, game, player, W, L, props, physics, water, cam, input, gfx, save, bench, version: VERSION, setQuality, step: (inp) => stepOnce(inp), act: () => player.interact && doAct(player.interact) };
 });
 
 // подсказки по пути (каждая — один раз)
@@ -178,28 +189,41 @@ function reachBottom() {
   hud.message(`Дно первого яруса за ${fmtTime(game.elapsed)}${isRecord ? ' — рекорд!' : ` (рекорд ${fmtTime(rec.time)}).`} Проход ниже пока закрыт решёткой.`, 6);
 }
 
-// «Действие»: прочитать записку или открыть сундук
+function countFinds() {
+  const fs = ents.byKind('find');
+  game.shardsTotal = fs.length;
+  game.shards = fs.filter((f) => f.taken).length;
+}
+
+// «Действие» — одна кнопка, смысл по сущности рядом: label — надпись на кнопке, can — можно ли, run — сделать
+const ACTIONS = {
+  note: {
+    label: () => 'читать', can: () => true,
+    run(n) {
+      if (!n.read) { ents.set(n, { read: true }); save.write(); }
+      const notes = ents.byKind('note'), read = notes.filter((q) => q.read).length;
+      $('noteTitle').textContent = n.title;
+      $('noteTxt').textContent = n.text;
+      $('noteCount').textContent = `Записки экспедиции: ${read} из ${notes.length}`;
+      game.running = false;
+      input.reset();
+      hud.screen('sNote', true);
+    },
+  },
+  find: {
+    label: () => 'открыть', can: (f) => !f.taken,
+    run(f) {
+      ents.set(f, { taken: true });
+      save.write();
+      countFinds();
+      hud.starPop();
+      hud.message(game.shards === game.shardsTotal ? `${f.name}! Все тайники первого яруса найдены!` : `Находка: ${f.name} (${game.shards} из ${game.shardsTotal})`, 3.5);
+    },
+  },
+};
 function doAct(it) {
-  const prog = save.data.progress;
-  if (it.kind === 'note') {
-    const n = it.item;
-    if (!n.read) { n.read = true; if (!prog.notes.includes(n.id)) prog.notes.push(n.id); save.write(); }
-    const read = props.notes.filter((q) => q.read).length;
-    $('noteTitle').textContent = n.title;
-    $('noteTxt').textContent = n.text;
-    $('noteCount').textContent = `Записки экспедиции: ${read} из ${props.notes.length}`;
-    game.running = false;
-    input.reset();
-    hud.screen('sNote', true);
-  } else if (it.kind === 'find' && !it.item.taken) {
-    const f = it.item;
-    props.takeFind(f);
-    if (!prog.finds.includes(f.id)) prog.finds.push(f.id);
-    save.write();
-    game.shards = props.finds.filter((q) => q.taken).length;
-    hud.starPop();
-    hud.message(game.shards === game.shardsTotal ? `${f.name}! Все тайники первого яруса найдены!` : `Находка: ${f.name} (${game.shards} из ${game.shardsTotal})`, 3.5);
-  }
+  const a = ACTIONS[it.kind];
+  if (a && a.can(it.item)) a.run(it.item);
 }
 $('noteClose').onclick = () => { hud.screen('sNote', false); if (!game.paused && !game.won && !player.dead) game.running = true; };
 
