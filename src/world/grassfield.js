@@ -72,7 +72,7 @@ export class GrassField {
   release(t) { t.mesh.visible = false; this.pool.push(t); }
 
   // заполнить плитку (tx, tz): травинки на пологой земле (не на скале, не в воде, не под водой)
-  fill(tx, tz) {
+  fill(tx, tz, yRef = 0) {
     let t = this.pool.pop();
     if (!t || t.n !== this.per) {
       if (t) { this.group.remove(t.mesh); t.mesh.dispose(); }
@@ -90,10 +90,10 @@ export class GrassField {
     const grid = [];
     for (let gx = 0; gx <= 4; gx++) for (let gz = 0; gz <= 4; gz++) {
       const x = tx * TILE + gx * 2, z = tz * TILE + gz * 2;
-      const g = this.P.ground(x, 60, z, 0, 400);
+      const g = this.P.ground(x, yRef + 22, z, 0, 50);              // землю ищем только рядом с героем по высоте
       if (!(g && g.ny > 0.78 && !g.box && !g.water && !this.P.waterAt(x, z))) { grid.push(null); continue; }
-      // тень от скал: луч к солнцу (как запечённый свет земли)
-      const sh = this.sun ? this.W.raycast(x, g.y + 0.6, z, this.sun.x, this.sun.y, this.sun.z, 140) : -1;
+      // тень от скал: луч к солнцу не дальше 60 м и только в каждом втором узле (соседи — такие же)
+      const sh = this.sun && (gx + gz) % 2 === 0 ? this.W.raycast(x, g.y + 0.6, z, this.sun.x, this.sun.y, this.sun.z, 60) : (grid.length ? (grid[grid.length - 1] && grid[grid.length - 1].lit < 1 ? 1 : -1) : -1);
       grid.push({ y: g.y, lit: sh < 0 ? 1 : 0.58 });
     }
     for (let i = 0; i < this.per; i++) {
@@ -126,12 +126,14 @@ export class GrassField {
     for (const [key, t] of this.tiles) {
       if (Math.abs(t.tx - cx) > this.r || Math.abs(t.tz - cz) > this.r) { this.release(t); this.tiles.delete(key); }
     }
+    // новые плитки — пока не потрачено ~2.5 мс кадра (на телефоне — 1–2 плитки за кадр, без рывков)
     let built = 0;
-    for (let d = 0; d <= this.r && built < 2; d++) for (let ix = -d; ix <= d && built < 2; ix++) for (let iz = -d; iz <= d && built < 2; iz++) {
+    const t0 = performance.now(), busy = () => built > 0 && performance.now() - t0 > 2.5;
+    for (let d = 0; d <= this.r && !busy(); d++) for (let ix = -d; ix <= d && !busy(); ix++) for (let iz = -d; iz <= d && !busy(); iz++) {
       if (Math.max(Math.abs(ix), Math.abs(iz)) !== d) continue;
       const tx = cx + ix, tz = cz + iz, key = tx * 100000 + tz;
       if (this.tiles.has(key)) continue;
-      const t = this.fill(tx, tz);
+      const t = this.fill(tx, tz, pos.y);
       t.tx = tx; t.tz = tz;
       this.tiles.set(key, t);
       built++;

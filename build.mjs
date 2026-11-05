@@ -7,6 +7,10 @@ import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { bakeWorld } from './tools/bake-world.mjs';
 
+// GIVER_FULL=1 — сборка ПОЛНОГО яруса (прежняя круглая шахта, всё содержимое) для старых проверок:
+// пишется в dist-full/ (APK и dist/ не трогает). Обычная сборка — демоверсия.
+const FULL = process.env.GIVER_FULL === '1';
+if (FULL) globalThis.__giverFull = true;
 // 0. Мир: «формула мира» → готовые куски со светом и цветом (повторно — только если исходники менялись)
 const baked = await bakeWorld({ force: process.argv.includes('--rebake') });
 console.log(baked.cached ? 'мир: без изменений' : `мир запечён: ${baked.tris} треугольников, ${baked.mb} МБ, ${baked.sec} с`);
@@ -45,19 +49,21 @@ const js = result.outputFiles[0].text;
 const html = readFileSync('web/index.html', 'utf8');
 
 const assets = 'android/app/src/main/assets/web';
-mkdirSync(assets, { recursive: true });
-writeFileSync(`${assets}/game.js`, js);
-writeFileSync(`${assets}/index.html`, html.replace('<!--GAME-->', '<script src="game.js"></script>'));
-
-mkdirSync('dist', { recursive: true });
+if (!FULL) {
+  mkdirSync(assets, { recursive: true });
+  writeFileSync(`${assets}/game.js`, js);
+  writeFileSync(`${assets}/index.html`, html.replace('<!--GAME-->', '<script src="game.js"></script>'));
+}
+const DIST = FULL ? 'dist-full' : 'dist';
+mkdirSync(DIST, { recursive: true });
 const inline = js.replace(/<\/script/gi, '<\\/script');
 const single = html.replace('<!--GAME-->', () => `<script>${inline}</script>`);
-writeFileSync('dist/giver.html', single);
+writeFileSync(`${DIST}/giver.html`, single);
 // для артефакта на claude.ai: без своих <html>/<head>/<body> (каркас добавляет сервер)
 const artifact = single
   .replace(/<!DOCTYPE html>\s*/i, '').replace(/<html[^>]*>\s*/i, '').replace(/<head>\s*/i, '')
   .replace(/<meta charset[^>]*>\s*/i, '').replace(/<meta name="viewport"[^>]*>\s*/i, '')
   .replace(/<\/head>\s*/i, '').replace(/<body>\s*/i, '').replace(/<\/body>\s*<\/html>\s*$/i, '');
-writeFileSync('dist/giver-artifact.html', artifact);
+if (!FULL) writeFileSync('dist/giver-artifact.html', artifact);
 
-console.log(`game.js: ${(js.length / 1024 / 1024).toFixed(2)} МБ, версия ${version}`);
+console.log(`game.js: ${(js.length / 1024 / 1024).toFixed(2)} МБ, версия ${version}${FULL ? ' (полный ярус → dist-full/)' : ''}`);

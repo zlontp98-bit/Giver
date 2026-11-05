@@ -9,12 +9,15 @@ import { loadTexture } from './models.js';
 export const QUALITY = {
   low: { name: 'Низкая', fps: 30, dpr: 0.9, shadows: 0, fx: false, ao: false, smaa: false, grass: 0.25, tex: 0, lod: 0.7 },
   medium: { name: 'Средняя', fps: 30, dpr: 1.0, shadows: 1024, fx: false, ao: false, smaa: false, grass: 0.55, tex: 1, lod: 1 },
-  high: { name: 'Высокая', fps: 60, dpr: 1.5, shadows: 2048, fx: true, ao: true, smaa: true, grass: 1.0, tex: 2, lod: 1.25 },
+  // «Высокая» — без эффектов-слоёв (на Mali они дорогие, а при смене чёткости экран мигал чёрным):
+  // чётче картинка, тени крупнее, вся трава, светлые края скал на солнце
+  high: { name: 'Высокая', fps: 60, dpr: 1.5, shadows: 2048, fx: false, ao: false, smaa: false, grass: 1.0, tex: 2, lod: 1.25 },
 };
 export const QUALITY_ORDER = ['low', 'medium', 'high'];
 
-export const SUN_DIR = new THREE.Vector3(-0.42, 0.78, -0.46).normalize();   // с северо-запада, высоко — то же при запекании мира
-const HORIZON = new THREE.Color('#f6e4c6'), TOP = new THREE.Color('#3d8ae0');
+// откуда светит солнце — то же при запекании мира (tools/bake-world.mjs, SUN): демо — вечер, ниже и теплее
+export const SUN_DIR = globalThis.__giverFull ? new THREE.Vector3(-0.42, 0.78, -0.46).normalize() : new THREE.Vector3(-0.76, 0.42, 0.22).normalize();
+const HORIZON = new THREE.Color('#ffd7a6'), TOP = new THREE.Color('#3a78c9');      // вечер: тёплый горизонт, глубокое небо
 const FOG = new THREE.Color('#ead9c2');
 
 // «Дымка глубины»: обычная дымка по расстоянию + синеватая по высоте — чем ниже точка мира, тем сильнее
@@ -39,9 +42,9 @@ THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
   #else
     float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
   #endif
-  float gvDeep = smoothstep( -12.0, -150.0, vFogY );
-  vec3 gvFogC = mix( fogColor, vec3( 0.26, 0.42, 0.55 ), gvDeep * 0.85 );
-  fogFactor = max( fogFactor, gvDeep * ( 1.0 - exp( - vFogDepth * 0.011 ) ) * 0.94 );
+  float gvDeep = smoothstep( -8.0, -120.0, vFogY );
+  vec3 gvFogC = mix( fogColor, vec3( 0.12, 0.24, 0.33 ), gvDeep * 0.9 );
+  fogFactor = max( fogFactor, gvDeep * ( 1.0 - exp( - vFogDepth * 0.012 ) ) * 0.96 );
   gl_FragColor.rgb = mix( gl_FragColor.rgb, gvFogC, fogFactor );
 #endif`;
 
@@ -64,7 +67,7 @@ export function createGfx() {
   // раньше у края оно то пропадало, то появлялось (мигало).
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1100, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false, toneMapped: false,
-    uniforms: { top: { value: TOP }, horizon: { value: HORIZON }, sunDir: { value: SUN_DIR }, sunCol: { value: new THREE.Color('#fff1d0') },
+    uniforms: { top: { value: TOP }, horizon: { value: HORIZON }, sunDir: { value: SUN_DIR }, sunCol: { value: new THREE.Color('#ffd9a0') },
       fogCol: { value: new THREE.Color() }, fogMix: { value: 0 } },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `uniform vec3 top, horizon, sunDir, sunCol, fogCol; uniform float fogMix; varying vec3 vDir;
@@ -84,9 +87,9 @@ export function createGfx() {
   renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); gfx.lost = true; }, false);
   renderer.domElement.addEventListener('webglcontextrestored', () => { gfx.lost = false; gfx.setQuality(gfx.quality); }, false);
 
-  const hemi = new THREE.HemisphereLight('#dbe9ff', '#a38a6c', 1.5);
+  const hemi = new THREE.HemisphereLight('#a9c3ee', '#4d4034', 1.5);       // тень — прохладная, снизу — тёмная
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight('#fff0d8', 2.7);
+  const sun = new THREE.DirectionalLight('#ffd6a4', 2.7);                  // вечернее солнце — тёплое
   Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 420 });
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.05;

@@ -130,9 +130,11 @@ export class Props {
     this.lookout();
     this.pathRails();
     this.campForest();
-    this.campLost();
-    this.mine();
-    this.gate();
+    if (!(L.demo && L.demo.rift)) {               // в демо-разломе этих мест нет (они глубже, в тумане)
+      this.campLost();
+      this.mine();
+      this.gate();
+    }
     this.anchors = [];              // за что цепляется крюк, кроме скал: кольца и начала тросов
     this.zipLines();
     this.rings();
@@ -759,9 +761,9 @@ export class Props {
 
   // перила вдоль тропы вниз на террасу (с внешней стороны)
   pathRails() {
-    const W = this.W, N = Math.PI, th0 = N - 0.10, span = 0.40, posts = [];
+    const W = this.W, P = this.L.ledges.path, th0 = P.th0, span = P.span, posts = [];
     for (let u = 0.04; u < 0.98; u += 0.025) {
-      const th = th0 + span * u, y = -1.6 + (-22.5 + 1.6) * u;
+      const th = th0 + span * u, y = P.y0 + (P.y1 - P.y0) * u;
       const R = W.pitR(Math.cos(th), Math.sin(th), y) - 4.6 * (0.35 + 0.65 * Math.min(1, u / 0.12, (1 - u) / 0.12)) + 0.5;
       const x = Math.sin(th) * R, z = Math.cos(th) * R, gy = this.groundAt(x, z, y + 3, 8);
       posts.push({ x, y: gy, z, ry: th + Math.PI / 2, s: 2.4 });

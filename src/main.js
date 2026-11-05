@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { createGfx, QUALITY, QUALITY_ORDER, SUN_DIR } from './render/gfx.js';
 import { GrassField } from './world/grassfield.js';
+import { RiftDecor } from './world/riftdecor.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { loadModels } from './render/models.js';
 import { Campfire, Fireflies } from './render/fire.js';
@@ -22,7 +23,7 @@ import { Creature } from './game/creature.js';
 import { Inventory, ITEMS, GEAR, RECIPES, BAG_SLOTS } from './game/inventory.js';
 import { buildTerrain, worldMaterial } from './world/terrain.js';
 import { Props } from './world/props.js';
-import { Water } from './world/water.js';
+import { Water, waterMat, ribbon } from './world/water.js';
 import { Physics } from './world/physics.js';
 import { Motes } from './world/motes.js';
 import { Player } from './player/player.js';
@@ -51,7 +52,7 @@ const { scene, camera } = gfx;
 
 // ——— мир: «формула мира» (для физики) и запечённые куски (для картинки) ———
 const LV = LEVELS[START_LEVEL];
-const W = new SdfWorld(LV.seed);
+const W = new SdfWorld(LV.seed, LV.world ? LV.world() : {});
 const L = LV.build(W);
 const DEMO = L.demo;                                      // демоверсия: только верх яруса, ниже L.demo.floor — туман
 if (DEMO) { GEAR.pickaxe.what = 'разбивать завалы'; RECIPES.find((r) => r.id === 'stew').what = 'силы до конца, +30 здоровья'; }
@@ -61,7 +62,7 @@ const state = stateFromSave(save.data, LV.id);
 save.data.state = state;
 const ents = new Entities(state);
 const inv = new Inventory(state);
-let structures = null, packs = null, builder = null, creature = null, grassField = null;
+let structures = null, packs = null, builder = null, creature = null, grassField = null, riftDecor = null;
 gfx.materialFactory = worldMaterial;
 const terrain = buildTerrain(worldMaterial(0));
 scene.add(terrain.group);
@@ -148,10 +149,14 @@ loadModels().then((models) => {
   props = new Props(scene, L, W, models, gfx);
   // вода: в заводи и в озере можно брести по грудь, падение в воду не ранит
   physics = new Physics(W, props.colliders, [
-    { x: L.poolA.x, z: L.poolA.z, rx: 7.5, rz: 6.5, y: -22.2 },
+    { x: L.poolA.x, z: L.poolA.z, rx: 7.5, rz: 6.5, y: L.poolA.water ?? -22.2 },
     { x: L.lake.x, z: L.lake.z, rx: L.lake.rx - 2, rz: L.lake.rz - 2, y: L.lake.y },
   ]);
   water = new Water(scene, L, W);
+  if (DEMO && DEMO.rift) {
+    riftDecor = new RiftDecor(scene, L, W, physics, waterMat, ribbon, SUN_DIR);
+    for (const c of riftDecor.colliders) physics.addCollider(c);
+  }
   grassField = new GrassField(scene, physics, W, SUN_DIR, [{ x: L.settle.x, z: L.settle.z, r: 30 }, { x: L.lookout.a[0], z: L.lookout.a[2], r: 6 }]);
   player = new Player(scene, physics, props, events);
   player.anchors = props.anchors;
@@ -549,7 +554,7 @@ const DETAIL = [
   { name: 'Средняя без текстур скал', q: 'medium', over: { tex: 0 } },
   { name: 'Средняя без теней', q: 'medium', over: { shadows: 0 } },
   { name: 'Высокая', q: 'high' },
-  { name: 'Высокая без AO', q: 'high', over: { ao: false } },
+  { name: 'Высокая без теней', q: 'high', over: { shadows: 0 } },
 ];
 let detail = null;
 const benchPath = () => L.bench.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
@@ -652,6 +657,7 @@ function frame(now) {
   const scale = gfx.pixelScale();
   props.update(clock, camera.position);
   grassField.update(player.pos);
+  if (riftDecor) riftDecor.update(clock);
   terrain.update(camera.position);
   water.update(clock, scale);
   fires.forEach((f) => f.update(clock, scale));

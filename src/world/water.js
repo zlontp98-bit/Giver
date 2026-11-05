@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 const U = { time: { value: 0 } };
 
-function waterMat({ fall = false, color = '#2f8fb0', foam = '#e8fbff', alpha = 0.82, speed = 1 } = {}) {
+export function waterMat({ fall = false, color = '#2f8fb0', foam = '#e8fbff', alpha = 0.82, speed = 1 } = {}) {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, fog: true, side: THREE.DoubleSide,
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
@@ -47,7 +47,7 @@ function waterMat({ fall = false, color = '#2f8fb0', foam = '#e8fbff', alpha = 0
 }
 
 // лента вдоль ломаной: pts — [x, y, z], width — ширина (число или функция от доли пути), side — направление «вбок»
-function ribbon(pts, width, sideFn, fadeFn = () => 1) {
+export function ribbon(pts, width, sideFn, fadeFn = () => 1) {
   const pos = [], uv = [], fade = [], idx = [];
   let len = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -135,7 +135,8 @@ export class Water {
     const top = rpts[rpts.length - 1], prev = rpts[rpts.length - 2];
     const dir = [top[0] - prev[0], 0, top[2] - prev[2]], dl = Math.hypot(dir[0], dir[2]);
     dir[0] /= dl; dir[2] /= dl;
-    const pool = L.poolA, poolY = -22.2;
+    const rift = !!(L.demo && L.demo.rift);                  // демо-разлом: заводь на полке, второй водопад — в туман
+    const pool = L.poolA, poolY = L.poolA.water ?? -22.2;
     const fall1 = this.fall(top, dir, poolY, 2.8, 8);
     // два слоя: задний пошире и потемнее, передний с пеной — струя выглядит объёмной
     const back = fall1.map((p, i) => [p[0] - dir[0] * 0.5, p[1], p[2] - dir[2] * 0.5]);
@@ -156,15 +157,23 @@ export class Water {
     }
     const streamPts = [...spts.slice(0, -1), edge];
     scene.add(new THREE.Mesh(ribbon(streamPts, 5, flowSide(streamPts)), waterMat({ color: '#3a96b4', alpha: 0.85, speed: 1.4 })));
-    // ——— второй водопад: с края террасы в озеро на дне ———
-    const fall2 = this.fall(edge, sd, L.lake.y, 3.2, 26);
-    scene.add(new THREE.Mesh(ribbon(fall2, (t) => 5.5 + t * 6, () => [sd[2], 0, -sd[0]], (t) => 1 - 0.45 * t), waterMat({ fall: true, color: '#6cc6e2', alpha: 0.85, speed: 1.3 })));
+    // ——— второй водопад: с края террасы в озеро на дне (в разломе — с края полки в туман, тает внизу) ———
+    const bottom2 = rift ? -150 : L.lake.y;
+    const fall2 = this.fall(edge, sd, bottom2, rift ? 2.6 : 3.2, 26);
+    const fade2 = rift ? (t) => 1 - Math.pow(Math.min(1, t * 1.15), 1.6) : (t) => 1 - 0.45 * t;
+    scene.add(new THREE.Mesh(ribbon(fall2, (t) => (rift ? 3.6 + t * 9 : 5.5 + t * 6), () => [sd[2], 0, -sd[0]], fade2), waterMat({ fall: true, color: '#6cc6e2', alpha: 0.85, speed: 1.3 })));
     const last = fall2[fall2.length - 1];
-    this.addMist(new THREE.Vector3(last[0], L.lake.y, last[2]), 14, 6, 140);
-    // ——— озеро на дне — светится изнутри ———
-    const lake = new THREE.Mesh(disc(L.lake.rx - 2.5, L.lake.rz - 2.5, 48), waterMat({ color: '#2aa6b8', foam: '#b9fbff', alpha: 0.9, speed: 0.25 }));
-    lake.position.set(L.lake.x, L.lake.y, L.lake.z);
-    scene.add(lake);
+    if (rift) {
+      // брызги там, где струя уходит в слой тумана
+      const mid = fall2.find((q) => q[1] < -44) || last;
+      this.addMist(new THREE.Vector3(mid[0], -46, mid[2]), 12, 5, 90);
+    } else {
+      this.addMist(new THREE.Vector3(last[0], L.lake.y, last[2]), 14, 6, 140);
+      // ——— озеро на дне — светится изнутри ———
+      const lake = new THREE.Mesh(disc(L.lake.rx - 2.5, L.lake.rz - 2.5, 48), waterMat({ color: '#2aa6b8', foam: '#b9fbff', alpha: 0.9, speed: 0.25 }));
+      lake.position.set(L.lake.x, L.lake.y, L.lake.z);
+      scene.add(lake);
+    }
     this.lakeY = L.lake.y;
     this.fallTops = [top, edge];
   }

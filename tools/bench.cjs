@@ -11,7 +11,7 @@ const OUT = path.resolve(__dirname, 'out');
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-  const url = 'file://' + path.resolve(__dirname, '../dist/giver.html');
+  const url = 'file://' + path.resolve(__dirname, '../dist-full/giver.html');
   await page.addInitScript(() => { window.__noAdapt = true; window.__giverFull = true; });
   await page.goto(url);
   await page.waitForFunction(() => window.__giver, null, { timeout: 60000 });

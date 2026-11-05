@@ -10,7 +10,7 @@ const path = require('path');
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   await page.addInitScript(() => { window.__noAdapt = true; window.__giverFull = true; });
-  const url = 'file://' + path.resolve(__dirname, '../dist/giver.html');
+  const url = 'file://' + path.resolve(__dirname, '../dist-full/giver.html');
   const r = [];
   const ok = (c, m) => r.push((c ? '✓ ' : '✗ ') + m);
   // помощники внутри страницы: упасть с высоты h над точкой (x, z)

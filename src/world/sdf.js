@@ -17,8 +17,14 @@ export function smax(a, b, k) { const h = Math.max(k - Math.abs(a - b), 0) / k; 
 const TAU = Math.PI * 2;
 export const normA = (a) => ((a % TAU) + TAU) % TAU;
 
+// opt.rift — форма «разлом» (демоверсия): не круглая шахта, а вытянутая с запада на восток трещина с заливами
+// и мысами; стена идёт ступенями — полками на разной высоте (слои пород наклонены, ширина полок меняется,
+// под полками бывают нависания), с рёбрами-контрфорсами и глыбами с плоскими гранями. Чем ниже — тем уже.
+// Всё, что зависит только от угла, посчитано заранее таблицами — формула не дороже прежней.
+const RIFT_N = 1024;
+const BENCH_Y = [-16, -40, -68, -102, -145];            // средняя высота полок-ступеней
 export class SdfWorld {
-  constructor(seed) {
+  constructor(seed, opt = {}) {
     this.seed = seed;
     this.n2 = makeNoise2D(seed + 1);
     this.n2b = makeNoise2D(seed + 2);
@@ -28,6 +34,77 @@ export class SdfWorld {
     this.grid = new Map();
     this.flats = [];          // ровные места на земле: { x, z, r, soft, h }
     this.river = null;        // русло реки наверху: { pts: [[x, z], …], half, depth }
+    this.rift = !!opt.rift;
+    this.pitMax = this.rift ? 300 : 262;     // дальше от центра Бездны нет
+    if (this.rift) this.buildRift(opt.benchBoost || []);
+  }
+
+  // ——— таблицы разлома по углу ———
+  // benchBoost: [{ th, width, k, extra }] — где полка должна быть шире (у посёлка, под водопадом)
+  buildRift(boost) {
+    const N = RIFT_N, n2 = this.n2, nb = this.n2b;
+    const per = (th, f, ox, oz, fn = n2) => fn(Math.cos(th) * f + ox, Math.sin(th) * f + oz);   // шум по кругу (без шва)
+    this.R0 = new Float32Array(N + 1);
+    this.LIP = new Float32Array(N + 1);
+    this.BY = BENCH_Y.map(() => new Float32Array(N + 1));
+    this.BD = BENCH_Y.map(() => new Float32Array(N + 1));
+    this.BU = BENCH_Y.map(() => new Float32Array(N + 1));
+    for (let i = 0; i <= N; i++) {
+      const th = (i / N) * TAU, s = Math.sin(th), c = Math.cos(th);
+      const north = Math.exp(-((c + 1) * (c + 1) + s * s) / 0.5);
+      // контур: вытянут с запада на восток, большие заливы и мысы
+      let R = 168 + 58 * s * s + 26 * per(th, 1.15, 3, 1) + 11 * per(th, 3.1, 7, 5, nb) + 4 * per(th, 7.3, 1, 9);
+      this.R0[i] = Math.min(268, R);
+      // нависающий край местами (у посёлка — меньше)
+      this.LIP[i] = Math.max(0, per(th, 2.4, 11, 2, nb)) * 9 * (1 - 0.6 * north);
+      for (let k = 0; k < BENCH_Y.length; k++) {
+        // слои наклонены (ступени не кольцами): смещение по высоте — шум + наклон
+        this.BY[k][i] = BENCH_Y[k] + (5 + k * 1.6) * per(th, 1.7, k * 3.1, 2 - k, nb) + (3 + k) * Math.sin(th * 1 + k * 1.9);
+        let d = 1.5 + 15 * smoothstep(-0.35, 0.55, per(th, 2.3, k * 7.7 + 1, k * 2.3));
+        let u = Math.max(0, per(th, 1.9, k * 11 + 4, 3, nb)) * (3 + k);
+        for (const b of boost) {
+          if (b.k !== k) continue;
+          const da = Math.abs(Math.atan2(Math.sin(th - b.th), Math.cos(th - b.th)));
+          const w = smoothstep(b.span, b.span * 0.4, da);
+          d = d + (b.width - d) * w * (b.width > d ? 1 : 0);
+          if (b.y !== undefined) this.BY[k][i] += (b.y - this.BY[k][i]) * w;
+          u *= 1 - w * (b.noUnder ? 1 : 0);
+        }
+        this.BD[k][i] = d;
+        this.BU[k][i] = u;
+      }
+    }
+  }
+  // значение таблицы по углу (с плавным переходом между соседними)
+  tab(T, th) {
+    const u = (normA(th) / TAU) * RIFT_N, i = Math.floor(u), f = u - i;
+    return T[i] + (T[i + 1] - T[i]) * f;
+  }
+  // полка-ступень k у угла th: { y — верх, d — ширина }
+  bench(th, k) { return { y: this.tab(this.BY[k], th), d: this.tab(this.BD[k], th) }; }
+
+  riftR(c, s, y) {
+    const th = Math.atan2(s, c);
+    let R = this.tab(this.R0, th) - 0.1 * Math.max(0, -y);
+    for (let k = 0; k < BENCH_Y.length; k++) {
+      const yk = this.tab(this.BY[k], th);
+      if (y > yk + 1.2) break;                                       // полки ниже — ещё не начались
+      R -= this.tab(this.BD[k], th) * smoothstep(yk + 1.0, yk - 1.0, y);
+      const u = this.tab(this.BU[k], th);
+      if (u > 0.05) R += u * smoothstep(yk - 0.6, yk - 3.5, y) * smoothstep(yk - 15, yk - 7, y);   // нависание под полкой
+    }
+    // мысы и заливы, меняются с глубиной медленно
+    R += 15 * this.n3(c * 2.0 + 5, s * 2.0, y / 140);
+    // рёбра-контрфорсы (вертикальные), острые гребни
+    const rib = this.n3(c * 8.5 + 1, s * 8.5, y / 70);
+    R += 5.5 * (1 - 2 * Math.abs(rib));
+    // глыбы с плоскими гранями: шум «ступеньками» — вертикальные грани и горизонтальные полочки
+    const q = this.n3b(c * 4.6, s * 4.6 + 2, y / 17) * 2.6, fl = Math.floor(q);
+    R += 4.2 * (fl + smoothstep(0.32, 0.68, q - fl)) / 2.6;
+    R += 1.2 * this.n3b(c * 15, s * 15 + 4, y / 6.5);
+    // нависающий край у самого верха
+    R -= this.tab(this.LIP, th) * smoothstep(-15, -2.5, y);
+    return R;
   }
 
   // ——— земля наверху ———
@@ -60,6 +137,7 @@ export class SdfWorld {
   // ——— Бездна: радиус стены по направлению (c = cos θ, s = sin θ) и высоте ———
   // θ = atan2(x, z): юг (+z) — 0, восток (+x) — π/2, север (−z) — π
   pitR(c, s, y) {
+    if (this.rift) return this.riftR(c, s, y);
     const dep = clamp(-y / PIT_DEPTH, 0, 1);
     let R = 194 - 26 * dep;
     R *= 1 + 0.07 * (c * c - s * s) + 0.05 * (2 * c * s);                // чуть вытянутая, не круглая
@@ -87,7 +165,7 @@ export class SdfWorld {
   base(x, y, z) {
     let d = y - this.terrainH(x, z);
     const r = Math.hypot(x, z) + 1e-9;
-    if (r < 262) {
+    if (r < this.pitMax) {
       const air = Math.min(this.pitR(z / r, x / r, y) - r, y - this.floorH(x, z));
       d = smax(d, air, 3.0);
     }
@@ -200,6 +278,7 @@ export class SdfWorld {
 
   // каменный столб с ровной верхушкой: неровный, чуть наклонённый, книзу толще
   pillar({ x, z, r, top, bottom = -PIT_DEPTH - 10, k = 3, lean = 0.05, leanDir = 0 }) {
+    if (this.rift) return this.crag({ x, z, r, top, bottom, k, lean, leanDir });
     const n = this.n3, nb = this.n3b, lx = Math.cos(leanDir) * lean, lz = Math.sin(leanDir) * lean;
     return this.add({
       air: false, k, x0: x - r * 2.2 - 12, x1: x + r * 2.2 + 12, z0: z - r * 2.2 - 12, z1: z + r * 2.2 + 12, y0: bottom, y1: top + 2,
@@ -210,6 +289,29 @@ export class SdfWorld {
         const rad = r * (1 + 0.28 * n(Math.cos(a) * 1.3, y / 16, Math.sin(a) * 1.3) + 0.1 * nb(Math.cos(a) * 3, y / 5, Math.sin(a) * 3))
           * (1 + 0.55 * smoothstep(top - 25, bottom, y));
         return Math.max(d - rad, y - top - 0.6 * n(px / 5, pz / 5, 2), bottom - y);
+      },
+    });
+  }
+
+  // скала-останец (для «разлома»): многогранник (5–7 граней, грани поворачиваются с высотой), ярусами —
+  // уступы-«пояса» на разной высоте, книзу толще, с отколотыми гранями. Не цилиндр.
+  crag({ x, z, r, top, bottom, k = 2, lean = 0.05, leanDir = 0 }) {
+    const n = this.n3, nb = this.n3b, lx = Math.cos(leanDir) * lean, lz = Math.sin(leanDir) * lean;
+    const sides = 5 + Math.floor(Math.abs(n(x / 50, z / 50, 1)) * 3), seg = TAU / sides, rot0 = x * 0.37 + z * 0.11;
+    return this.add({
+      air: false, k, x0: x - r * 2.4 - 14, x1: x + r * 2.4 + 14, z0: z - r * 2.4 - 14, z1: z + r * 2.4 + 14, y0: bottom, y1: top + 3,
+      sd: (px, y, pz) => {
+        const h = top - y, cx = x + lx * h, cz = z + lz * h;
+        const dx = px - cx, dz = pz - cz, d = Math.hypot(dx, dz);
+        const tier = Math.floor(h / 13 + 0.6 * nb(x / 9, y / 30, z / 9));                     // пояса по высоте
+        const a = Math.atan2(dx, dz) - rot0 - tier * 0.45;
+        const am = ((a % seg) + seg) % seg - seg / 2;
+        const poly = Math.cos(seg / 2) / Math.cos(am);                                      // многоугольник
+        const rad = r * (1 + 0.12 * tier * 0.25 + 0.22 * smoothstep(top - 18, bottom, y))
+          * (1 + 0.16 * n(Math.cos(a) * 1.2, y / 22, Math.sin(a) * 1.2)) * (1 + 0.05 * Math.sin(tier * 2.3));
+        const side = d / poly - rad;
+        const cap = y - top - 0.8 * n(px / 6, pz / 6, 2);
+        return Math.max(side, cap, bottom - y);
       },
     });
   }

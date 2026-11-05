@@ -15,14 +15,17 @@ import { makeRng, clamp, smoothstep } from '../src/core/noise.js';
 
 const OUT = 'src/world/baked.gen.js';
 const SOURCES = ['src/world/sdf.js', 'src/world/levels.js', 'src/world/level1.js', 'src/world/scatter.js', 'src/core/noise.js', 'tools/bake-world.mjs'];
-export const SUN = norm([-0.42, 0.78, -0.46]);      // откуда светит солнце (северо-запад, высоко) — то же в render/gfx.js
+// откуда светит солнце — то же в render/gfx.js (SUN_DIR). Демо-разлом: вечер, солнце низко (≈25°) на западе:
+// с края смотришь на юг — свет сбоку: восточная стена и останцы в тёплом свете, западная — в тени,
+// длинные тени от края ложатся в пустоту.
+export const SUN = globalThis.__giverFull ? norm([-0.42, 0.78, -0.46]) : norm([-0.76, 0.42, 0.22]);
 
 const CELL = 2.5, CH = 48, X0 = -300, Y0 = -230, Z0 = -420, NX = 5, NY = 3, NZ = 6;   // куски 120 м
-const SN_RMAX = 260;                                  // дальше — сетка высот
+let SN_RMAX = 260;                                    // дальше — сетка высот (у «разлома» — 292)
 // на севере (посёлок) подробная сетка заходит дальше — до 320 м, чтобы вся площадь была ровной и чёткой
 function snR(x, z) {
   const d = Math.abs(Math.atan2(Math.sin(Math.atan2(x, z) - Math.PI), Math.cos(Math.atan2(x, z) - Math.PI)));
-  return SN_RMAX + 60 * smoothstep(0.45, 0.25, d);
+  return SN_RMAX + (SN_RMAX > 270 ? 34 : 60) * smoothstep(0.45, 0.25, d);
 }
 const HF_STEP = 6, HF_TILE = 32, HF_R1 = 500;
 
@@ -30,12 +33,14 @@ export async function bakeWorld({ force = false, fast = false } = {}) {
   const hash = createHash('sha1');
   for (const f of SOURCES) hash.update(readFileSync(f));
   hash.update(fast ? 'fast' : 'full');
+  hash.update(globalThis.__giverFull ? 'layer1-full' : 'demo');      // полный ярус (старые проверки) или демо
   const key = hash.digest('hex').slice(0, 16);
   if (!force && existsSync(OUT) && readFileSync(OUT, 'utf8').slice(0, 200).includes(key)) return { cached: true, key };
 
   const t0 = Date.now();
+  SN_RMAX = globalThis.__giverFull ? 260 : 292;
   const LV = LEVELS[START_LEVEL];
-  const W = new SdfWorld(LV.seed);
+  const W = new SdfWorld(LV.seed, LV.world ? LV.world() : {});
   const L = LV.build(W);
   const ctx = makeCtx(W, L, fast);
   const meshes = [];
@@ -248,8 +253,43 @@ const PAL = {
   wet: hex('#46685a'), floor: hex('#46646a'), bed: hex('#7a6c55'), campGround: hex('#8d9160'),
 };
 
+// демо-разлом: камень серо-коричневый наверху → холодный сине-серый в глубине; слои пород — едва заметные и
+// наклонные (не кольцами); на полках — тёмный мох (глубже — бирюзовый); трава наверху — сочная
+const PR = {
+  rockA: hex('#8c8070'), rockB: hex('#6f665b'), rockC: hex('#666c72'), rockD: hex('#4b5561'), rockE: hex('#3b4553'),
+  mossA: hex('#466f3b'), mossB: hex('#355f45'), mossC: hex('#2b5150'), cave: hex('#3b3733'),
+  grassA: hex('#4f8f38'), grassB: hex('#6aa446'), dry: hex('#8f9a4c'),
+};
+function albedoRift(ctx, x, y, z, nx, ny, nz) {
+  const { W, L } = ctx;
+  const r = Math.hypot(x, z), wallR = W.wallR(x, z, y);
+  const n1 = W.n2(x / 11 + 3, z / 11 - 7 + y / 9), n2 = W.n2b(x / 37, z / 37 + y / 23);
+  const steep = 1 - smoothstep(0.55, 0.82, ny);
+  const band = 0.5 + 0.5 * Math.sin(y * 0.21 + 0.035 * x + 4.0 * W.n2(x / 90, z / 90));
+  let rock = y > -40 ? mix(PR.rockA, PR.rockB, 0.35 + 0.3 * n1 + 0.15 * band)
+    : y > -100 ? mix(mix(PR.rockB, PR.rockC, smoothstep(-40, -70, y)), PR.rockD, smoothstep(-70, -100, y) * 0.6 + 0.2 * n1)
+      : mix(PR.rockD, PR.rockE, smoothstep(-100, -150, y) + 0.2 * n1);
+  rock = mix(rock, mix(rock, PR.rockA, 0.5), band * 0.18);
+  let ground;
+  if (y > -6 && r > wallR - 3) {
+    ground = mix(PR.grassA, PR.grassB, 0.5 + 0.5 * n1);
+    ground = mix(ground, PR.dry, smoothstep(0.35, 0.8, n2) * 0.45);
+    const ds = Math.hypot(x - L.settle.x, z - L.settle.z);
+    const dp = Math.abs(x - L.settle.x) < 3.2 && z > L.settle.z && z < -(L.Rn - 2) ? 0 : 99;
+    const pathT = Math.max(smoothstep(24, 14, ds), smoothstep(3.6, 1.8, Math.min(dp, 99)));
+    ground = mix(ground, PAL.path, pathT * (0.75 + 0.25 * n1));
+  } else ground = mix(mix(PR.mossA, PR.mossB, smoothstep(-6, -40, y) + 0.2 * n1), PR.mossC, smoothstep(-40, -110, y));
+  let c = mix(ground, rock, steep);
+  if (r > wallR + 0.5 && y < -2) c = mix(c, PR.cave, 0.55);            // в пещерах
+  const wet = wetness(L, x, y, z);
+  if (wet > 0) c = mix(c, PAL.wet, wet * 0.75);
+  const v = 0.9 + 0.12 * W.n2(x / 3.1, z / 3.1 + y / 2.7);
+  return [c[0] * v, c[1] * v, c[2] * v];
+}
+
 function albedo(ctx, x, y, z, nx, ny, nz) {
   const { W, L } = ctx;
+  if (W.rift && L.demo) return albedoRift(ctx, x, y, z, nx, ny, nz);
   const r = Math.hypot(x, z), wallR = W.wallR(x, z, y);
   const n1 = W.n2(x / 11 + 3, z / 11 - 7 + y / 9), n2 = W.n2b(x / 37, z / 37 + y / 23);
   const steep = 1 - smoothstep(0.55, 0.82, ny);

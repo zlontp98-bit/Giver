@@ -107,10 +107,10 @@ function patchedLights() {
 }
 
 // демоверсия — стилизованный вид: скалы и трава без фото-текстур (рисованная расцветка в шейдере;
-// заодно это и дешевле для видеочипа телефона); уровень только 0 или 2 (неровности — потом)
+// заодно это и дешевле для видеочипа телефона)
 export const STYLIZED = true;
 export function worldMaterial(level = 0) {
-  if (STYLIZED) level = 0;
+  if (STYLIZED) return rockMaterial(level);
   if (level >= 1 && !TEX) TEX = {
     rock: loadTexture('cliff_side_diff.jpg', true), rockN: loadTexture('cliff_side_nor.jpg'),
     grass: loadTexture('grass_ground_diff.jpg', true), grassN: loadTexture('grass_ground_nor.jpg'),
@@ -205,4 +205,152 @@ export function worldMaterial(level = 0) {
       .replace('#include <lights_fragment_begin>', patchedLights());
   };
   return m;
+}
+
+
+// ——— стилизованный камень (демо-разлом) ———
+// Текстура «граней и трещин» строится при запуске (256×256, повторяется): ячейки Вороного — каждая глыба со
+// своим наклоном (rg — наклон нормали), своим оттенком (b) и трещинами по краям (a). Накладывается с трёх
+// сторон (как обычно для скал), и солнце считается по этим граням в каждой точке — камень выглядит колотым,
+// а не глиняным. Запечённая тень от скал остаётся (её берём из запечённого света вершины).
+let FACET = null;
+function facetTexture(size = 256, cells = 6) {
+  if (FACET) return FACET;
+  let seed = 9187;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) | 0; return ((seed >>> 0) % 1000003) / 1000003; };
+  const P = [];
+  for (let j = 0; j < cells; j++) for (let i = 0; i < cells; i++) {
+    P.push({ x: (i + 0.12 + 0.76 * rnd()) / cells, y: (j + 0.12 + 0.76 * rnd()) / cells, a: rnd() * 2 - 1, b: rnd() * 2 - 1, id: rnd() });
+  }
+  const H = new Float32Array(size * size), ID = new Float32Array(size * size), CR = new Float32Array(size * size);
+  for (let py = 0; py < size; py++) for (let px = 0; px < size; px++) {
+    const u = (px + 0.5) / size, v = (py + 0.5) / size, ci = Math.floor(u * cells), cj = Math.floor(v * cells);
+    let f1 = 9, f2 = 9, best = null, bdx = 0, bdy = 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const ii = (ci + di + cells) % cells, jj = (cj + dj + cells) % cells, q = P[jj * cells + ii];
+      const qx = q.x + Math.floor((ci + di) / cells), qy = q.y + Math.floor((cj + dj) / cells);   // соседи через край плитки
+      const dx = u - qx, dy = v - qy, d = Math.hypot(dx, dy) * cells;
+      if (d < f1) { f2 = f1; f1 = d; best = q; bdx = dx; bdy = dy; } else if (d < f2) f2 = d;
+    }
+    const edge = f2 - f1;
+    const crack = Math.min(1, Math.max(0, edge / 0.06));
+    const k = py * size + px;
+    // наклонная плоскость в ячейке + желобок трещины
+    H[k] = (best.a * bdx + best.b * bdy) * cells * 0.42 - (1 - crack * crack) * 0.18;
+    ID[k] = best.id; CR[k] = crack;
+  }
+  const data = new Uint8Array(size * size * 4);
+  for (let py = 0; py < size; py++) for (let px = 0; px < size; px++) {
+    const k = py * size + px, xl = py * size + ((px + size - 1) % size), xr = py * size + ((px + 1) % size);
+    const yd = ((py + size - 1) % size) * size + px, yu = ((py + 1) % size) * size + px;
+    const gx = (H[xr] - H[xl]) * size * 0.06, gy = (H[yu] - H[yd]) * size * 0.06;
+    data[k * 4] = Math.max(0, Math.min(255, 128 - gx * 127));
+    data[k * 4 + 1] = Math.max(0, Math.min(255, 128 - gy * 127));
+    data[k * 4 + 2] = Math.round(ID[k] * 255);
+    data[k * 4 + 3] = Math.round(CR[k] * 255);
+  }
+  const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  FACET = t;
+  return t;
+}
+
+function rockMaterial(level) {
+  const tex = facetTexture();
+  // с двух сторон: если на изломе скалы треугольник при запекании лёг «изнанкой» — он всё равно виден (иначе
+  // в стене дырочка и сквозь неё небо). Свет считаем по нормали формулы мира — сторона треугольника не важна.
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  m.defines = level >= 2 ? { ROCK_RIM: '' } : {};
+  m.customProgramCacheKey = () => 'giverRock' + level;
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.tFacet = { value: tex };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        attribute vec2 aLit; attribute vec3 aGlow;
+        varying vec2 vLit; varying vec3 vGlow; varying vec3 vWP; varying vec3 vWN;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vLit = aLit; vGlow = aGlow;
+        vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vWN = normalize(mat3(modelMatrix) * objectNormal);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec2 vLit; varying vec3 vGlow; varying vec3 vWP; varying vec3 vWN;
+        uniform sampler2D tFacet;
+        ${NOISE_GLSL}
+        vec3 gvPert; float gvCell; float gvCrack; float gSteep;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          vec3 wn = normalize(vWN);
+          gSteep = 1.0 - smoothstep(0.55, 0.8, wn.y);
+          vec3 bw = pow(abs(wn), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
+          // на стенах грани вытянуты по вертикали (как столбчатые трещины), сверху — обычные
+          vec4 tx = texture2D(tFacet, vec2(vWP.z * 0.028, vWP.y * 0.012)), tz = texture2D(tFacet, vec2(vWP.x * 0.028, vWP.y * 0.012));
+          vec4 ty = bw.y > 0.02 ? texture2D(tFacet, vWP.xz * 0.05) : vec4(0.5, 0.5, 0.5, 1.0);
+          float slab = texture2D(tFacet, vec2((vWP.x + vWP.z) * 0.011, vWP.y * 0.0055)).b;      // крупные глыбы — свой оттенок
+          vec2 nx = tx.rg * 2.0 - 1.0, ny2 = ty.rg * 2.0 - 1.0, nz = tz.rg * 2.0 - 1.0;
+          gvPert = vec3(0.0, nx.y, nx.x) * bw.x + vec3(ny2.x, 0.0, ny2.y) * bw.y + vec3(nz.x, nz.y, 0.0) * bw.z;
+          gvCell = tx.b * bw.x + ty.b * bw.y + tz.b * bw.z;
+          gvCrack = tx.a * bw.x + ty.a * bw.y + tz.a * bw.z;
+          float big = gvNoise(vWP.xz * 0.03 + 7.0), mid = gvNoise(vWP.xz * 0.13 + vWP.y * 0.05);
+          // трава/мох на ровном: тёплые и прохладные пятна
+          vec3 gTint = mix(vec3(1.08, 1.04, 0.80), vec3(0.80, 0.98, 0.94), smoothstep(0.3, 0.7, big)) * (0.9 + 0.2 * mid);
+          gTint *= 0.9 + 0.1 * gvCrack;
+          // камень: каждая глыба своя (светлее/темнее, теплее/холоднее), трещины тёмные, мох сверху
+          vec3 rTint = mix(vec3(0.88), vec3(1.1), gvCell) * mix(vec3(0.84, 0.86, 0.9), vec3(1.12, 1.06, 0.98), slab);
+          rTint *= mix(vec3(1.05, 0.98, 0.91), vec3(0.93, 0.97, 1.05), step(0.5, fract(gvCell * 7.0)));
+          rTint *= 0.74 + 0.26 * gvCrack;
+          rTint *= 0.9 + 0.2 * gvNoise(vec2((vWP.x + vWP.z) * 0.45, vWP.y * 0.035));         // подтёки
+          float moss = smoothstep(0.3, 0.7, wn.y + gvPert.y * 0.5) * smoothstep(0.25, 0.6, mid);
+          rTint *= mix(vec3(1.0), vec3(0.58, 0.9, 0.5), moss);
+          diffuseColor.rgb *= mix(gTint, rTint, gSteep);
+          // чем глубже — тем холоднее и темнее
+          diffuseColor.rgb *= mix(vec3(1.0), vec3(0.62, 0.74, 0.98), smoothstep(-6.0, -130.0, vWP.y));
+        }`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        {
+          vec3 wn = normalize(vWN);
+          vec3 nW = normalize(wn + gvPert * mix(0.22, 0.95, gSteep));
+          normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
+        }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        totalEmissiveRadiance += vGlow * 1.3;
+        #ifdef ROCK_RIM
+          // светлый край на солнечной стороне (силуэты скал чётче)
+          float rim = pow(1.0 - max(dot(normal, normalize(vViewPosition)), 0.0), 4.0);
+          totalEmissiveRadiance += vec3(1.0, 0.82, 0.6) * rim * 0.22 * vLit.x * diffuseColor.rgb;
+        #endif`)
+      .replace('#include <lights_fragment_begin>', rockLights());
+  };
+  return m;
+}
+
+// солнце по граням: запечённая тень от скал (свет вершины / наклон вершины) × наклон грани к солнцу
+function rockLights() {
+  let s = THREE.ShaderChunk.lights_fragment_begin;
+  const a = s.indexOf('#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )');
+  const b = s.indexOf('#if ( NUM_RECT_AREA_LIGHTS > 0 )');
+  if (a < 0 || b < 0) throw new Error('three.js: не нашёл блок солнца в шейдере');
+  const sun = `
+#if ( NUM_DIR_LIGHTS > 0 )
+	{
+		vec3 sunDir = directionalLights[ 0 ].direction;
+		vec3 vN = normalize( ( viewMatrix * vec4( normalize( vWN ), 0.0 ) ).xyz );
+		float shade = clamp( vLit.x / max( dot( vN, sunDir ), 0.15 ), 0.0, 1.0 );
+		float sunL = shade * max( dot( normal, sunDir ), 0.0 );
+		#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+			DirectionalLightShadow dls0 = directionalLightShadows[ 0 ];
+			sunL *= receiveShadow ? getShadow( directionalShadowMap[ 0 ], dls0.shadowMapSize, dls0.shadowIntensity, dls0.shadowBias, dls0.shadowRadius, vDirectionalShadowCoord[ 0 ] ) : 1.0;
+		#endif
+		reflectedLight.directDiffuse += BRDF_Lambert( material.diffuseColor ) * directionalLights[ 0 ].color * sunL;
+	}
+#endif
+
+`;
+  s = s.slice(0, a) + sun + s.slice(b);
+  s = s.replace('irradiance += getHemisphereLightIrradiance( hemisphereLights[ i ], geometryNormal );', 'irradiance += getHemisphereLightIrradiance( hemisphereLights[ i ], geometryNormal ) * vLit.y;');
+  return s;
 }

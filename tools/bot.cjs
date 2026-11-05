@@ -11,7 +11,7 @@ const path = require('path');
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
   await page.addInitScript((dbg) => { window.__noAdapt = true; window.__giverFull = true; window.__botDebug = dbg; }, !!process.env.BOTDEBUG);
-  await page.goto('file://' + path.resolve(__dirname, '../dist/giver.html'));
+  await page.goto('file://' + path.resolve(__dirname, '../dist-full/giver.html'));
   await page.waitForFunction(() => window.__giver && window.__giver.player, null, { timeout: 90000 });
   await page.click('#go');
   await page.waitForTimeout(300);

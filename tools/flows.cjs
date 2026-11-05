@@ -10,7 +10,7 @@ const path = require('path');
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   await page.addInitScript(() => { window.__noAdapt = true; window.__giverFull = true; });
-  await page.goto('file://' + path.resolve(__dirname, '../dist/giver.html'));
+  await page.goto('file://' + path.resolve(__dirname, '../dist-full/giver.html'));
   await page.waitForFunction(() => window.__giver && window.__giver.player, null, { timeout: 90000 });
   await page.click('#go');
   await page.waitForTimeout(500);

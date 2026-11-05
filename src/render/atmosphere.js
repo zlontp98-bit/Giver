@@ -42,8 +42,8 @@ export class Atmosphere {
     const cam = this.gfx.camera;
     if (Math.abs(cam.far - far) > 2) { cam.far = far; cam.updateProjectionMatrix(); }
     const light = lerp(lerp(a.light, b.light, t), CAVE.light, k);
-    hemi.intensity = 1.25 * light;
-    sun.intensity = 2.1 * Math.pow(light, 1.2);
+    hemi.intensity = 1.05 * light;
+    sun.intensity = 2.9 * Math.pow(light, 1.2);
     // фонарик на шапке: чем темнее, тем ярче; в шахте слабее — там свои лампы, пусть между ними будет темно
     player.lamp.intensity = Math.max(0, 0.95 - light) * 7 * (1 - 0.45 * k);
     this.glow.copy(a.glowC).lerp(b.glowC, t);
