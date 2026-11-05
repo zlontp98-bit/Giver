@@ -8,3 +8,6 @@
   Уменьшены до 512×512.
 - `fonts/*` — Comfortaa и Nunito (Google Fonts) — SIL Open Font License 1.1.
 - Герой, крюк, Бездна (стены, уступы, кристаллы, корни), платформы, небо, частицы — свой код.
+
+## spawn/assets (первая локация)
+- weathered_planks, roof_slates_02, rock_wall_08 — Poly Haven (CC0), уменьшены до 512 px и перекрашены.

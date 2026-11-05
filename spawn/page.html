@@ -1,0 +1,41 @@
+<style>
+  :root { --glass: rgba(16, 24, 40, 0.55); --line: rgba(255,255,255,0.2); --cream: #fff6ea; --ember: #ff9a4a;
+    --l: env(safe-area-inset-left, 0px); --r: env(safe-area-inset-right, 0px); --t: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9aa6d0; color: var(--cream);
+    font: 700 13px/1.2 "Nunito", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+  #layer { position: fixed; inset: 0; touch-action: none; }
+  #bar { position: fixed; top: calc(8px + var(--t)); left: calc(8px + var(--l)); right: calc(8px + var(--r)); display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+  #bar button, #fps { pointer-events: auto; border: 1px solid var(--line); background: var(--glass); color: var(--cream); border-radius: 999px;
+    padding: 7px 12px; font: inherit; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); cursor: pointer; }
+  #bar button.on, #bar button:active { background: rgba(255, 154, 74, 0.55); border-color: var(--ember); }
+  #bar .sp { flex: 1; }
+  #fps { pointer-events: none; opacity: 0.8; }
+  #joy { position: fixed; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35);
+    background: rgba(16, 24, 40, 0.25); display: none; pointer-events: none; }
+  #knob { position: absolute; left: 30px; top: 30px; width: 46px; height: 46px; border-radius: 50%; background: rgba(255, 246, 234, 0.75); }
+  #title { position: fixed; left: 0; right: 0; bottom: 14%; text-align: center; pointer-events: none; transition: opacity 1.2s;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.55); }
+  #title b { display: block; font-size: 26px; letter-spacing: 0.04em; }
+  #title span { opacity: 0.85; }
+  #title.hide { opacity: 0; }
+  #help { position: fixed; bottom: 8px; right: calc(10px + var(--r)); opacity: 0.7; pointer-events: none; font-weight: 600; font-size: 11px; text-shadow: 0 1px 4px #000; }
+</style>
+<div id="layer"></div>
+<div id="bar">
+  <button id="bTour">▶ Прогулка</button>
+  <button data-view="start">Поселение</button>
+  <button data-view="overlook">Смотровая</button>
+  <button data-view="down">Вниз</button>
+  <button data-view="village">Сбоку</button>
+  <button data-view="above">Сверху</button>
+  <button id="bFly">Полёт</button>
+  <span class="sp"></span>
+  <button id="bQ">Низкая</button>
+  <span id="fps">— к/с</span>
+</div>
+<div id="joy"><div id="knob"></div></div>
+<div id="title"><b>Высотное поселение</b><span>Giver · первая локация · этап 1: окружение</span></div>
+<div id="help">слева — идти · справа — смотреть · ПК: WASD, мышь, F — полёт</div>
+<!--GAME-->
