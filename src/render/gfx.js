@@ -48,6 +48,32 @@ THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
   gl_FragColor.rgb = mix( gl_FragColor.rgb, gvFogC, fogFactor );
 #endif`;
 
+// текстура облаков: несколько слоёв шума (повторяется без шва), 256×256, один канал (её же берёт туман)
+let CLOUD = null;
+export function cloudTexture(size = 256) {
+  if (CLOUD) return CLOUD;
+  const g = new Uint8Array(size * size * 4);
+  const lat = (n, seed) => { const a = new Float32Array(n * n); let x = seed; for (let i = 0; i < a.length; i++) { x = (x * 1664525 + 1013904223) | 0; a[i] = ((x >>> 0) % 10007) / 10007; } return a; };
+  const oct = [[4, 0.5, 11], [8, 0.25, 23], [16, 0.15, 37], [32, 0.1, 51]].map(([n, w, sd]) => ({ n, w, a: lat(n, sd) }));
+  const sm = (t) => t * t * (3 - 2 * t);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let v = 0;
+    for (const o of oct) {
+      const fx = (x / size) * o.n, fy = (y / size) * o.n, ix = Math.floor(fx), iy = Math.floor(fy), tx = sm(fx - ix), ty = sm(fy - iy);
+      const A = (i, j) => o.a[((j + o.n) % o.n) * o.n + ((i + o.n) % o.n)];
+      v += o.w * (A(ix, iy) * (1 - tx) * (1 - ty) + A(ix + 1, iy) * tx * (1 - ty) + A(ix, iy + 1) * (1 - tx) * ty + A(ix + 1, iy + 1) * tx * ty);
+    }
+    const k = (y * size + x) * 4, b = Math.round(Math.min(1, v) * 255);
+    g[k] = g[k + 1] = g[k + 2] = b; g[k + 3] = 255;
+  }
+  const t = new THREE.DataTexture(g, size, size, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  t.needsUpdate = true;
+  CLOUD = t;
+  return t;
+}
+
 export function createGfx() {
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'default', stencil: false });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -65,16 +91,35 @@ export function createGfx() {
   // Небо рисуется первым и без проверки глубины — это просто фон. Сфера всегда внутри дальней границы
   // камеры (её радиус подстраивается в render), а в глубине Бездны небо плавно уходит в цвет дымки —
   // раньше у края оно то пропадало, то появлялось (мигало).
+  // Облака — из маленькой текстуры (строится при запуске, 256×256, повторяется): одна выборка на точку неба.
+  // Дальние горы — два ряда силуэтов прямо в шейдере неба (по углу): дальний — светлый в дымке, ближний — темнее.
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1100, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false, toneMapped: false,
     uniforms: { top: { value: TOP }, horizon: { value: HORIZON }, sunDir: { value: SUN_DIR }, sunCol: { value: new THREE.Color('#ffd9a0') },
-      fogCol: { value: new THREE.Color() }, fogMix: { value: 0 } },
+      fogCol: { value: new THREE.Color() }, fogMix: { value: 0 }, tCloud: { value: cloudTexture() }, uTime: { value: 0 },
+      hazeCol: { value: new THREE.Color('#c4ced3') } },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform vec3 top, horizon, sunDir, sunCol, fogCol; uniform float fogMix; varying vec3 vDir;
+    fragmentShader: `uniform vec3 top, horizon, sunDir, sunCol, fogCol, hazeCol; uniform float fogMix, uTime; uniform sampler2D tCloud; varying vec3 vDir;
+      float ridge(float a, float s){ return 0.5 + 0.5 * sin(a * 3.0 + s) * 0.45 + 0.25 * sin(a * 7.0 + s * 2.3) + 0.12 * sin(a * 17.0 + s * 4.1) + 0.06 * sin(a * 41.0 + s); }
       void main(){ vec3 d = normalize(vDir);
-        vec3 col = mix(horizon, top, pow(smoothstep(-0.02, 0.75, d.y), 0.85));
         float s = max(dot(d, sunDir), 0.0);
-        col += sunCol * (pow(s, 1400.0) * 6.0 + pow(s, 40.0) * 0.35 + pow(s, 5.0) * 0.12);
+        vec3 col = mix(horizon, top, pow(smoothstep(-0.02, 0.6, d.y), 0.8));
+        col = mix(col, hazeCol, (1.0 - smoothstep(0.0, 0.12, d.y)) * (1.0 - s * s) * 0.6);    // у горизонта — дымка (как у земли)
+        col += sunCol * (pow(s, 1400.0) * 6.0 + pow(s, 40.0) * 0.35 + pow(s, 5.0) * 0.18);
+        // облака: плоский слой высоко; освещены со стороны солнца, к горизонту тают
+        if (d.y > 0.0) {
+          vec2 cu = d.xz / (d.y + 0.12) * 0.32 + vec2(uTime * 0.0025, uTime * 0.0012);
+          float c = texture2D(tCloud, cu).r;
+          float cm = smoothstep(0.42, 0.75, c) * smoothstep(0.0, 0.18, d.y);
+          vec3 cc = mix(vec3(0.62, 0.66, 0.78), vec3(1.0, 0.86, 0.68), 0.35 + 0.65 * pow(s, 3.0)) * (0.85 + 0.25 * c);
+          col = mix(col, cc, cm * 0.85);
+        }
+        // горы на горизонте (по азимуту): дальний ряд светлее и в дымке, ближний — темнее
+        float az = atan(d.x, d.z);
+        float h1 = 0.028 + 0.05 * ridge(az, 1.7), h2 = 0.012 + 0.03 * ridge(az + 1.3, 5.2);
+        vec3 m1 = mix(hazeCol, vec3(0.42, 0.5, 0.6), 0.35), m2 = mix(hazeCol, vec3(0.3, 0.38, 0.42), 0.55);
+        col = mix(col, m1, smoothstep(h1 + 0.002, h1 - 0.002, d.y) * (1.0 - 0.35 * s));
+        col = mix(col, m2, smoothstep(h2 + 0.002, h2 - 0.002, d.y));
         col = mix(col, fogCol, fogMix);
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
@@ -195,6 +240,7 @@ export function createGfx() {
       sky.position.copy(camera.position);
       sky.scale.setScalar(Math.min(1, (camera.far * 0.9) / 1100));
       sky.material.uniforms.fogCol.value.copy(scene.fog.color);
+      sky.material.uniforms.uTime.value += dt;
       const y = camera.position.y;
       sky.material.uniforms.fogMix.value = Math.min(1, Math.max(0, (-6 - y) / 64));
       const q = QUALITY[gfx.quality];

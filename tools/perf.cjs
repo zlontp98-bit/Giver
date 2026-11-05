@@ -18,8 +18,17 @@ const path = require('path');
     g.setQuality(q);
     const R = (th, y) => W.pitR(Math.cos(th), Math.sin(th), y);
     const at = (th, d, y) => { const r = R(th, y) - d; return new V(Math.sin(th) * r, y, Math.cos(th) * r); };
-    // места: [где, куда смотреть]
-    const spots = {
+    // места: [где, куда смотреть]; демо-разлом — свои места (посёлок, смотровая, полка, мост, останец, пещера)
+    const N = Math.PI, bAt = (th, k, d) => { const b = W.bench(th, k); return at(th, d, b.y + 2).setY(b.y + 1); };
+    const spots = L.demo && L.demo.rift ? {
+      village: [new V(L.settle.x + 6, 1, L.settle.z + 8), 0],
+      lookout: [new V(L.lookout.b[0], 1, L.lookout.b[2] - 2), Math.PI],
+      lookdown: [new V(L.lookout.b[0], 1, L.lookout.b[2] - 2), Math.PI - 0.35, 0.7],
+      shelf: [bAt(N - 0.1, 0, 5), 0.2],
+      bridge: [new V(...L.demo.bridge.a).setY(L.demo.bridge.a[1] + 1), Math.PI - 0.6],
+      crag: [new V(L.pillars[0].pos[0], L.pillars[0].top + 1, L.pillars[0].pos[2]), 0.4],
+      cave: [new V(L.secrets.wfRoom[0], L.secrets.wfRoom[1], L.secrets.wfRoom[2]), 1.0],
+    } : {
       village: [new V(L.settle.x + 6, 1, L.settle.z + 8), 0],
       lookout: [new V(L.lookout.b[0], 1, L.lookout.b[2] - 2), Math.PI],
       forest: [new V(L.aX - 20, -24, L.aZ + 10), Math.PI + 0.9],
@@ -31,9 +40,9 @@ const path = require('path');
     const gl = gfx.renderer.getContext(), px = new Uint8Array(4);
     const time = (N = 4) => { let tot = 0; for (let i = 0; i < N; i++) { gfx.shadowDirty = true; const t0 = performance.now(); gfx.render(1 / 30); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); tot += performance.now() - t0; } return Math.round(tot / N); };
     const res = {};
-    for (const [name, [p, yaw]] of Object.entries(spots)) {
+    for (const [name, [p, yaw, pitch]] of Object.entries(spots)) {
       if (only && only !== name) continue;
-      P.spawn(p); g.cam.yaw = yaw; g.cam.pitch = 0.15;
+      P.spawn(p); g.cam.yaw = yaw; g.cam.pitch = pitch || 0.15;
       await new Promise((r) => setTimeout(r, 1200));     // кадры обновят камеру, куски и мелочь
       time(2);
       const r = { ms: time(5) };
@@ -47,6 +56,7 @@ const path = require('path');
           noInstanced: (o) => o.isInstancedMesh,
           noPoints: (o) => o.isPoints,
           noWater: (o) => o.isMesh && o.material && o.material.type === 'ShaderMaterial' && o !== gfx.sky,
+          noSky: (o) => o === gfx.sky,
         })) { const undo = hide(test); time(1); r[k] = time(4); undo(); }
       }
       res[name] = r;

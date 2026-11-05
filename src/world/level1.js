@@ -56,7 +56,10 @@ export function buildLevel1(W, opt = {}) {
   // уступ у самой струи и ниша-тайник за ней. Угол θ = N − a (a растёт к востоку)
   const step = (aW, aE, yW, yE, depth = 3.6) => { const l = { th0: N - aE, span: aE - aW, y0: yE, y1: yW, depth, thick: 2.6 }; W.ledge(l); return l; };
   const falls = {
-    steps: [step(0.126, 0.166, -1.8, -2.6, 4.0), step(0.176, 0.192, -3.7, -3.7), step(0.202, 0.218, -4.9, -4.9), step(0.228, 0.240, -6.0, -6.0, 3.8)],
+    // (в разломе последний камень длиннее — с разбега не перелететь)
+    steps: rift
+      ? [step(0.126, 0.166, -1.8, -2.6, 4.0), step(0.178, 0.204, -3.8, -3.8, 4.2), step(0.216, 0.242, -5.6, -5.6, 4.2)]
+      : [step(0.126, 0.166, -1.8, -2.6, 4.0), step(0.176, 0.192, -3.7, -3.7), step(0.202, 0.218, -4.9, -4.9), step(0.228, 0.240, -6.0, -6.0, 3.8)],
     far: step(0.276, 0.297, -7.0, -7.2, 3.8),
   };
   {
@@ -298,7 +301,7 @@ export function buildLevel1(W, opt = {}) {
   const onGround = (x, z, yTop, drop = 30) => [x, groundY(x, z, yTop, drop), z];
   const secretPos = at(thS, Rs + 9, -120);
   const finds = [
-    { id: 'compass', name: 'Старый компас', where: 'за водопадом', pos: onGround(wfRoom[0], wfRoom[2], -19) },
+    { id: 'compass', name: 'Старый компас', where: 'за водопадом', pos: onGround(wfRoom[0], wfRoom[2], rift ? wfRoom[1] + 1.5 : -19) },
     { id: 'map', name: 'Карта первого яруса', where: 'в глубине расщелины', pos: onGround(crevRoom[0], crevRoom[2], crevY + 3) },
     { id: 'lamp', name: 'Шахтёрская лампа', where: 'в каморке у зала шахты', pos: onGround(mineRoom[0], mineRoom[2], -93) },
     { id: 'badge', name: 'Знак экспедиции', where: 'в тайнике за лагерем', pos: onGround(secretPos[0], secretPos[2], -116) },
@@ -448,10 +451,27 @@ export function buildLevel1(W, opt = {}) {
     demo = { floor: rift ? -58 : -42, falls, rift, bridge: rift ? bridge : null };
     const keep = (p) => p[1] > demo.floor;
     const ringOn = (th, y) => { for (let r = R(th, y) - 20; r < R(th, y) + 15; r += 0.25) { const p = at(th, r, y); if (W.f(p[0], p[1], p[2]) < 0.45) return p; } return at(th, R(th, y), y); };
-    const ringP = ringOn(N - 0.258, -0.6);
-    const out = at(N - 0.258, R(N - 0.258, -0.6) - 2.6, -0.6);           // кольцо — на 2.6 м от стены, над серединой провала
     rings.length = 0;
-    rings.push({ name: 'над провалом у водопада', pos: Math.hypot(ringP[0], ringP[2]) > Math.hypot(out[0], out[2]) ? out : ringP });
+    if (rift) {
+      // кольцо над провалом: там, откуда его видно с конца последнего камня (прицел не упирается в скалу),
+      // и чтобы с него долететь до дальнего уступа
+      const sl = falls.steps[falls.steps.length - 1], thE = sl.th0 + 0.002, yE = sl.y0 + 1.4;
+      const eye = at(thE, R(thE, sl.y0) - 1.6, yE);
+      // ближе к стене — лучше (дальний уступ узкий: раскачка должна проходить над ним), но прицел — свободен
+      let best = null, bestScore = -1e9;
+      for (const da of [0.012, 0.016, 0.02, 0.024]) for (const y of [-1.2, -2.0, -2.8]) for (const outw of [2.6, 3.2, 3.8, 4.6]) {
+        const th = sl.th0 - da, c = at(th, R(th, y) - outw, y);
+        let minF = 1e9;
+        for (let i = 1; i < 20; i++) { const t = i / 20; minF = Math.min(minF, W.f(eye[0] + (c[0] - eye[0]) * t, eye[1] + (c[1] - eye[1]) * t, eye[2] + (c[2] - eye[2]) * t)); }
+        const score = -outw * 2 - Math.abs(da - 0.018) * 40 + Math.min(minF, 1.2);
+        if (minF > 0.85 && W.f(c[0], c[1], c[2]) > 1.2 && score > bestScore) { bestScore = score; best = c; }
+      }
+      rings.push({ name: 'над провалом у водопада', pos: best || at(N - 0.26, R(N - 0.26, -1.6) - 4.5, -1.6) });
+    } else {
+      const ringP = ringOn(N - 0.258, -0.6);
+      const out = at(N - 0.258, R(N - 0.258, -0.6) - 2.6, -0.6);           // кольцо — на 2.6 м от стены, над серединой провала
+      rings.push({ name: 'над провалом у водопада', pos: Math.hypot(ringP[0], ringP[2]) > Math.hypot(out[0], out[2]) ? out : ringP });
+    }
     zips.length = 1;
     if (rift) {
       // трос со смотровой — на ближний столб с лесом наверху (над пустотой)
@@ -465,11 +485,34 @@ export function buildLevel1(W, opt = {}) {
     notes.push({ id: 'n9', at: onGround(...(() => { const p = at(N - 0.150, R(N - 0.150, -2.2) - 2.2, -2.2); return [p[0], p[2]]; })(), 0, 6), title: 'Метка на камне',
       text: 'Короткая дорога к водопаду. Камни шатаются, прыгать — с разбега. Над провалом мы вбили кольцо: зацепись крюком, шагни вниз и раскачайся. Кто дошёл — загляни за струю.' });
     for (let i = resources.length - 1; i >= 0; i--) if (!keep(resources[i].pos)) resources.splice(i, 1);
+    if (rift) {
+      // в разломе ресурсы — заново: на первой полке (дерево, камни, грибы, ягоды), наверху — что было у посёлка
+      for (let i = resources.length - 1; i >= 0; i--) if (resources[i].pos[1] < -3) resources.splice(i, 1);
+      const rngR = makeRng(6606);
+      const onShelf = (type, n, th0, th1, rich = 0) => {
+        for (let t = 0, k = 0; t < 300 && k < n; t++) {
+          const th = th0 + rngR() * (th1 - th0), b = W.bench(th, 0);
+          const rIn = R(th, b.y - 2.5), rOut = R(th, b.y + 2.5);
+          if (rOut - rIn < 7) continue;
+          // не у края полки (там она скругляется вниз — съедешь) и не под нависанием
+          const r = rIn + 3.5 + rngR() * (rOut - rIn - 5.5), x = Math.sin(th) * r, z = Math.cos(th) * r, y = groundY(x, z, b.y + 4, 8);
+          if (Math.abs(y - b.y) > 2 || W.f(x, y + 1.0, z) < 0.9 || W.f(x, y + 2.0, z) < 0.9 || Math.hypot(x - poolA.x, z - poolA.z) < 9) continue;
+          const nrm = { x: 0, y: 0, z: 0 };
+          if (W.normal(x, y + 0.2, z, nrm).y < 0.9) continue;
+          if (resources.some((q) => Math.hypot(q.pos[0] - x, q.pos[2] - z) < 4)) continue;
+          resources.push({ id: `res:r${type}${k}`, type, pos: [x, y, z], rich: k < rich ? 1 : 0 }); k++;
+        }
+      };
+      onShelf('wood', 8, N - 0.25, N + 0.45, 3);
+      onShelf('stone', 9, N - 0.25, N + 0.45, 2);
+      onShelf('mushroom', 5, N - 0.2, N + 0.4);
+      onShelf('berry', 4, N - 0.1, N + 0.4);
+    }
     // камни: у подножия стены на террасе и на уступах; подготовленные — поваленные стволы и груды камней (×2)
     {
       const rng = makeRng(5505);
       let n = 0;
-      for (let t = 0; t < 400 && n < 9; t++) {
+      for (let t = 0; t < 400 && n < (rift ? 0 : 9); t++) {
         const th = N - 0.45 + rng() * 0.9, y0 = rift ? W.bench(th, 0).y + 6 : -18, r = rift ? R(th, y0 - 8) - 1.5 - rng() * 6 : R(th, -24) - 3 - rng() * 10;
         const x = Math.sin(th) * r, z = Math.cos(th) * r;
         const y = groundY(x, z, y0, 25);
@@ -477,7 +520,7 @@ export function buildLevel1(W, opt = {}) {
         if (resources.some((q) => Math.hypot(q.pos[0] - x, q.pos[2] - z) < 4)) continue;
         resources.push({ id: `res:dstone${n}`, type: 'stone', pos: [x, y, z], rich: n < 3 ? 1 : 0 }); n++;
       }
-      for (const l of falls.steps.slice(1, 3)) {
+      for (const l of rift ? [] : falls.steps.slice(1, 3)) {
         const th = l.th0 + l.span * 0.5, y = l.y0, r = R(th, y) - 1.6;
         resources.push({ id: `res:dstep${resources.length}`, type: 'stone', pos: [Math.sin(th) * r, groundY(Math.sin(th) * r, Math.cos(th) * r, y + 2, 4), Math.cos(th) * r], rich: 0 });
       }
@@ -531,7 +574,7 @@ export function riftOptions() {
     rift: true,
     benchBoost: [
       { k: 0, th: N, span: 0.62, width: 12, y: -17, noUnder: true },          // первая полка под посёлком
-      { k: 0, th: N - 0.30, span: 0.16, width: 17, y: -17, noUnder: true },   // под водопадом — широкая (заводь)
+      { k: 0, th: N - 0.30, span: 0.16, width: 17, y: -17, noUnder: true, noLip: true },   // под водопадом — широкая (заводь)
       { k: 1, th: N + 0.1, span: 0.55, width: 11, y: -38 },                    // вторая — в тумане
     ],
   };
@@ -565,7 +608,7 @@ function riftFeatures({ W, at, R, N, thW, Rw, poolA, streamA, wfRoom, pillars, b
   // останцы — на разной высоте и глубине (одни выше края полки, другие поднимаются из тумана): слоями
   // закрывают друг друга и дальнюю стену — так видно масштаб, а всё сразу — не видно
   const P = [
-    { th: N - 0.43, r: 0, top: -12, rad: 9, lean: 0.03, dir: 0.4 },        // ближний, с лесом наверху (трос, мост)
+    { th: N - 0.43, r: 0, top: -14.5, rad: 9, lean: 0.03, dir: 0.4 },      // ближний, с лесом наверху (трос, мост)
     { th: N + 0.74, r: 120, top: -26, rad: 8, lean: 0.06, dir: 2.0 },       // тонкий, слева
     { th: 0.62, r: 92, top: -48, rad: 16, lean: 0.04, dir: 3.6 },           // большой, посередине
     { th: -0.38, r: 126, top: -18, rad: 11, lean: 0.05, dir: 5.1 },         // высокий у дальней стены, от него арка
@@ -606,6 +649,11 @@ function riftFeatures({ W, at, R, N, thW, Rw, poolA, streamA, wfRoom, pillars, b
     const a0 = at(q.th, Re + 1.2, bq.y), aY = a0[1];
     const b0 = at(q.th, q.r + q.rad * 0.7, q.top);
     bridge.a = [a0[0], aY + 0.05, a0[2]]; bridge.b = [b0[0], q.top + 0.05, b0[2]]; bridge.sag = 1.6;
+  }
+  // 9. лагерь (точка сохранения) — на полке между водопадом и концом тропы, не под струёй
+  {
+    const th = N - 0.1, bq = W.bench(th, 0), r = R(th, bq.y + 2) - 5;
+    bridge.camp = at(th, r, bq.y);
   }
   return [t0, t1];
 }

@@ -224,7 +224,7 @@ function makeHints() {
 }
 // подсказки маршрута демоверсии: уступы к водопаду, кольцо над провалом, пещера, арка к столбу
 function demoHints(v) {
-  const F = DEMO.falls, s0 = F.steps[0], s3 = F.steps[3];
+  const F = DEMO.falls, s0 = F.steps[0], s3 = F.steps[F.steps.length - 1];
   const onL = (l, u, y = 0) => { const th = l.th0 + l.span * u, yy = l.y0 + (l.y1 - l.y0) * u, r = W.pitR(Math.cos(th), Math.sin(th), yy) - 1.6; return v([Math.sin(th) * r, yy + y, Math.cos(th) * r]); };
   return [
     { pos: onL(s0, 0.5), r: 5, text: 'Короткая дорога к водопаду: прыгай с камня на камень. С разбега («Бег») — дальше' },

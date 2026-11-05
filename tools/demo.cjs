@@ -74,7 +74,7 @@ const path = require('path');
     ok(jumps === s.length - 1 && hurt === 0, `паркур: ${jumps} прыжка по камням, урон ${hurt}`);
     // 2. кольцо: у восточного края последнего камня навести прицел, зацепиться, шагнуть и раскачаться
     const ring = P.anchors.find((a) => a.kind === 'ring');
-    walkTo(lp(s[3], 0.15, 1.6), 0.6);
+    walkTo(lp(s[s.length - 1], 0.15, 1.6), 0.6);
     const dir = ring.pos.clone().sub(P.pos.clone().setY(P.pos.y + 1.4)).normalize();
     cam.yaw = Math.atan2(-dir.x, -dir.z); cam.pitch = Math.max(-0.5, Math.min(1.2, -Math.asin(dir.y) + 0.3));
     for (let k = 0; k < 3; k++) step();
@@ -97,7 +97,7 @@ const path = require('path');
           swingT += 1 / 60;
           i.mx = vE > -0.3 ? 1 : 0;
           // над дальним уступом — соскочить
-          const over = g.physics.ground(P.pos.x + east.x * 0.6, P.pos.y + 0.2, P.pos.z + east.z * 0.6, 0.4, 2.6);
+          const over = g.physics.ground(P.pos.x + east.x * 0.6, P.pos.y + 0.2, P.pos.z + east.z * 0.6, 0.4, 3.6);
           if (over && Math.abs(over.y - F.far.y0) < 1 && vE > 0) { i.jump = true; released = true; }
         }
       }
@@ -125,7 +125,7 @@ const path = require('path');
       const st0 = P.stamina, y0 = P.pos.y, climbing = P.state === 'climb';
       for (let k = 0; k < 60 * 25 && P.state === 'climb'; k++) { const i2 = blank(); i2.my = -1; cam.yaw = Math.atan2(P.climb.n.x, P.climb.n.z); step(i2); }
       for (let k = 0; k < 200 && P.state !== 'ground'; k++) step();
-      ok(climbing && P.state === 'ground' && P.pos.y < -18 && !P.dead, (climbing ? '' : dbg + ' | ') + `спуск по стене: с ${y0.toFixed(1)} до ${P.pos.y.toFixed(1)}, силы ${st0.toFixed(0)} → ${P.stamina.toFixed(0)}, урон всего ${hurt}`);
+      ok(climbing && P.state === 'ground' && P.pos.y < (L.demo.rift ? -15 : -18) && !P.dead, (climbing ? '' : dbg + ' | ') + `спуск по стене: с ${y0.toFixed(1)} до ${P.pos.y.toFixed(1)}, силы ${st0.toFixed(0)} → ${P.stamina.toFixed(0)}, урон всего ${hurt}`);
     }
     // 4. дерево, камни → кирка в рюкзаке → завал → компас
     const actAt = (e) => {
@@ -150,14 +150,17 @@ const path = require('path');
     ok(lr0 === 'завал: нужна кирка' && canMake && g.state.gear.pickaxe, `в рюкзаке: дерево и камни → кирка (${canMake ? 'сделал' : 'нельзя'}); у завала было «${lr0}»`);
     const lr1 = actAt(rub);
     const comp = g.ents.get('find:compass');
-    // пройти пешком от заводи через проход к компасу
-    P.spawn(new V(L.poolA.x - 3, -22, L.poolA.z - 3));
-    const th = L.thW, Rw = R(th, -22);
-    const at = (a, rr, y) => new V(Math.sin(a) * rr, y, Math.cos(a) * rr);
-    for (const p of [at(th, Rw - 2.5, -23), at(th + 0.01, Rw + 5, -22.6), comp.pos]) walkTo(p, 1.0, 15);
+    // пройти пешком от заводи через проход (где был завал) к компасу
+    {
+      const rp = rub.pos.clone(), th = Math.atan2(rp.x, rp.z), rr = Math.hypot(rp.x, rp.z);
+      const before = new V(Math.sin(th) * (rr - 4), rp.y + 1, Math.cos(th) * (rr - 4));
+      P.spawn(before);
+      for (const p of [rp, comp.pos]) walkTo(p, 1.0, 15);
+    }
     const nearC = P.interact && P.interact.item === comp;
+    const dbgC = `герой ${fmt(P.pos)} ${P.state}, компас ${fmt(comp.pos)}, завал ${fmt(rub.pos)}`;
     g.act();
-    ok(rub.cleared && nearC && comp.taken, `кирка разбила завал («${lr1}»), дошёл до компаса: ${comp.taken ? 'открыл' : 'нет'} (${g.game.shards}/${g.game.shardsTotal})`);
+    ok(rub.cleared && nearC && comp.taken, (comp.taken ? '' : dbgC + ' | ') + `кирка разбила завал («${lr1}»), дошёл до компаса: ${comp.taken ? 'открыл' : 'нет'} (${g.game.shards}/${g.game.shardsTotal})`);
     // 5. граница демо: вниз по полке к уступам — ниже 42 м туман, очнулся у лагеря с вещами
     const invBefore = JSON.stringify(g.state.inv);
     const ab = L.ledges.ab;
@@ -172,7 +175,7 @@ const path = require('path');
     const pl = L.ledges.path;
     walkTo(new V(Math.sin(Math.PI - 0.06) * (R(Math.PI - 0.06, 0) + 2.5), 0, Math.cos(Math.PI - 0.06) * (R(Math.PI - 0.06, 0) + 2.5)));
     for (let k = 1; k <= 14; k++) walkTo(lp(pl, 0.12 + (0.84 * k) / 14, 1.4), 0.9, 15);
-    ok(P.pos.y < -19 && !P.dead, `обычный путь — тропа по стене: внизу на y ${P.pos.y.toFixed(1)}`);
+    ok(P.pos.y < pl.y1 + 2 && !P.dead, `обычный путь — тропа по стене: внизу на y ${P.pos.y.toFixed(1)} (конец тропы ${pl.y1.toFixed(1)})`);
     g.savePlayer(true);
     return { r, t };
   });

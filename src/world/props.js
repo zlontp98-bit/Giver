@@ -774,7 +774,8 @@ export class Props {
 
   // ——— лагерь у водопада на террасе (первая точка сохранения внизу) ———
   campForest() {
-    const p = this.L.poolA, x = p.x - 14, z = p.z - 2, y = this.H(x, z, -10, 40);
+    const p = this.L.poolA, cp = this.L.demo && this.L.demo.bridge && this.L.demo.bridge.camp;
+    const x = cp ? cp[0] : p.x - 14, z = cp ? cp[2] : p.z - 2, y = this.H(x, z, cp ? cp[1] + 4 : -10, 40);
     const tent = { x: x + 2, y, z: z - 3, ry: 0.4, s: 7 };
     this.many('sv-tent-canvas', [tent]);
     this.box(tent.x, y + 1.2, tent.z, 2, 1.3, 2, 0.4);

@@ -6,6 +6,7 @@
 //   • косые лучи солнца в пустоте (мягкие, складываются со светом).
 // Всё — несколько мешей и простые шейдеры; живых источников света нет.
 import * as THREE from 'three';
+import { cloudTexture } from '../render/gfx.js';
 
 const TAU = Math.PI * 2;
 
@@ -31,14 +32,14 @@ export class RiftDecor {
     const W = this.W, N = Math.PI, rnd = this.rnd;
     const pos = [], col = [], idx = [];
     const n = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), a = new THREE.Vector3(), b = new THREE.Vector3();
-    const tube = (pts, r0, r1, c0, c1) => {
+    const tube = (pts, r0, r1, c0, c1, ph = 0) => {
       const base = pos.length / 3, SEG = 6;
       for (let i = 0; i < pts.length; i++) {
         const p = pts[i], q = pts[Math.min(pts.length - 1, i + 1)], o = pts[Math.max(0, i - 1)];
         const t = new THREE.Vector3().subVectors(q, o).normalize();
         a.copy(Math.abs(t.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : up).cross(t).normalize();
         b.copy(t).cross(a).normalize();
-        const u = i / (pts.length - 1), r = r0 + (r1 - r0) * u;
+        const u = i / (pts.length - 1), r = (r0 + (r1 - r0) * Math.pow(u, 0.7)) * (1 + 0.22 * Math.sin(i * 1.9 + ph) * Math.sin(i * 0.7 + ph * 2));   // узлы
         for (let k = 0; k < SEG; k++) {
           const ang = (k / SEG) * TAU, cx = Math.cos(ang), cy = Math.sin(ang);
           pos.push(p.x + (a.x * cx + b.x * cy) * r, p.y + (a.y * cx + b.y * cy) * r, p.z + (a.z * cx + b.z * cy) * r);
@@ -52,38 +53,57 @@ export class RiftDecor {
       }
     };
     // путь корня по стене: шаг вниз, держим расстояние от скалы off (метров), изгибы — шумом
-    const drape = (th, y0, len, off, wob) => {
-      const pts = [];
+    // over — корень сначала выходит из земли за краем и переваливает через край (если начинается у самого верха)
+    const drape = (th, y0, len, off, wob, over = false) => {
+      const pts = [], ph = th * 13.7;
       let th1 = th, y = y0;
+      if (over) {
+        const Rt = this.R(th, 0);
+        for (const [dr, yy] of [[4.5, W.terrainH(Math.sin(th) * (Rt + 4.5), Math.cos(th) * (Rt + 4.5)) - 0.15], [1.8, 0.35], [-0.2, -0.3]]) {
+          pts.push(new THREE.Vector3(Math.sin(th) * (Rt + dr), yy, Math.cos(th) * (Rt + dr)));
+        }
+      }
       for (let s = 0; s <= len; s += 1.6) {
-        const R0 = this.R(th1, y);
+        const R0 = this.R(th1, y), o = off * (1 + 0.6 * Math.max(0, Math.sin(s * 0.45 + ph)));
         let p = new THREE.Vector3(Math.sin(th1) * R0, y, Math.cos(th1) * R0);
-        // к воздуху: по нормали формулы мира, пока не будет off от скалы
+        // к воздуху: по нормали формулы мира, пока не будет o от скалы
         for (let k = 0; k < 8; k++) {
           const f = W.f(p.x, p.y, p.z);
-          if (Math.abs(f - off) < 0.15) break;
+          if (Math.abs(f - o) < 0.15) break;
           W.normal(p.x, p.y, p.z, n);
-          p.addScaledVector(n, (off - f) * 0.8);
+          p.addScaledVector(n, (o - f) * 0.8);
         }
         pts.push(p);
         y -= 1.6;
-        th1 += wob * Math.sin(s * 0.21 + th * 9) * 0.004;
+        th1 += wob * Math.sin(s * 0.33 + ph) * 0.011;          // корень петляет по стене
         if (y < -95) break;
       }
       return pts;
     };
     const bark = [0.27, 0.19, 0.13], tip = [0.2, 0.26, 0.2];
-    // большие корни у посёлка (под смотровой и по сторонам) — видно сразу у края
-    for (let i = 0; i < 14; i++) {
-      const th = N + (rnd() - 0.5) * 1.6, r0 = 0.35 + rnd() * 0.6;
-      const pts = drape(th, -1.5 - rnd() * 3, 14 + rnd() * 30, r0 * 0.9, 1);
-      if (pts.length > 3) tube(pts, r0, r0 * 0.15, bark, tip);
+    // где корней нет: тропа со смотровой вниз, сама смотровая, водопад, мост (там ходят и смотрит камера)
+    const P = this.L.ledges && this.L.ledges.path, dA = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+    const free = (th) => !(P && dA(th, P.th0 + P.span / 2) < P.span / 2 + 0.06) && dA(th, N) > 0.07 && dA(th, N - 0.3) > 0.06 && dA(th, N - 0.43) > 0.06;
+    // огромные корни у посёлка: по бокам от смотровой, свисают до первой полки и ниже — видно сразу у края
+    for (let i = 0; i < 26; i++) {
+      const side = i % 2 ? 1 : -1, th = N + side * (0.06 + rnd() * 0.75), r0 = 0.45 + rnd() * 0.7;
+      if (!free(th)) continue;
+      const pts = drape(th, -1.2, 12 + rnd() * 26, r0 * 1.05, 1.4, true);
+      if (pts.length > 3) tube(pts, r0, r0 * 0.15, bark, tip, th * 7);
+      // от толстого корня — два-три тонких отростка
+      for (let k = 0; k < 3 && pts.length > 6; k++) {
+        const j = 2 + Math.floor(rnd() * (pts.length - 4)), p0 = pts[j];
+        const th2 = Math.atan2(p0.x, p0.z) + (rnd() - 0.5) * 0.03;
+        const sub = drape(th2, p0.y, 5 + rnd() * 12, 0.3 + r0 * 0.3, 3);
+        if (sub.length > 2) { sub[0] = p0.clone(); tube(sub, r0 * 0.35, 0.03, bark, tip, th2 * 5); }
+      }
     }
     // тонкие корни-плети по всему краю
     for (let i = 0; i < 70; i++) {
       const th = rnd() * TAU, r0 = 0.08 + rnd() * 0.16;
-      const pts = drape(th, -1 - rnd() * 4, 6 + rnd() * 22, 0.25 + r0, 2.5);
-      if (pts.length > 3) tube(pts, r0, 0.03, bark, tip);
+      if (!free(th)) continue;
+      const pts = drape(th, -1.2, 6 + rnd() * 22, 0.25 + r0, 2.5, rnd() < 0.6);
+      if (pts.length > 3) tube(pts, r0, 0.03, bark, tip, th * 3);
     }
     // из-под полок второй и третьей ступени (уходят в туман)
     for (let k = 0; k < 2; k++) for (let i = 0; i < 18; i++) {
@@ -144,7 +164,7 @@ export class RiftDecor {
       }
     }
     // столкновения: короткие отрезки настила (по ним идёшь), края — невысокие стенки (не свалиться)
-    const SEG = 10;
+    const SEG = 28;                                            // мелкие ступеньки — идёшь, как по склону
     for (let i = 0; i < SEG; i++) {
       const u = (i + 0.5) / SEG, y = deckY(u);
       const c = new THREE.Vector3(a.x + d.x * u, y - 0.1, a.z + d.z * u);
@@ -184,16 +204,13 @@ export class RiftDecor {
   fogLayers() {
     const mat = (y, col, a, scale) => new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, fog: false,
-      uniforms: { uTime: this.u.uTime, uCol: { value: new THREE.Color(col) }, uA: { value: a }, uY: { value: y }, uS: { value: scale } },
+      uniforms: { uTime: this.u.uTime, uCol: { value: new THREE.Color(col) }, uA: { value: a }, uY: { value: y }, uS: { value: scale }, tC: { value: cloudTexture() } },
       vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-      fragmentShader: `uniform float uTime, uA, uY, uS; uniform vec3 uCol; varying vec3 vW;
-        float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float n(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
-          return mix(mix(h(i), h(i + vec2(1, 0)), u.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), u.x), u.y); }
+      fragmentShader: `uniform float uTime, uA, uY, uS; uniform vec3 uCol; uniform sampler2D tC; varying vec3 vW;
         void main(){
-          vec2 p = vW.xz * uS + vec2(uTime * 0.012, uTime * 0.007);
-          float c = n(p) * 0.6 + n(p * 2.3 + 5.0) * 0.3 + n(p * 5.1 + 9.0) * 0.1;
-          float a = smoothstep(0.32, 0.78, c) * uA;
+          vec2 p = vW.xz * uS * 0.25 + vec2(uTime * 0.003, uTime * 0.0018);
+          float c = texture2D(tC, p).r * 0.7 + texture2D(tC, p * 2.7 + 0.3).r * 0.3;
+          float a = smoothstep(0.4, 0.72, c) * uA;                 // рваный: в просветах видно, что ниже
           // у камеры тоньше (не стена тумана перед глазами), у стен — гуще
           float dCam = length(cameraPosition - vW);
           a *= smoothstep(6.0, 40.0, dCam);
@@ -202,7 +219,7 @@ export class RiftDecor {
         }`,
     });
     this.layers = [];
-    for (const [y, col, a, s] of [[-46, '#9fb6c4', 0.55, 0.018], [-72, '#6f8ea4', 0.7, 0.014], [-110, '#41637d', 0.85, 0.011]]) {
+    for (const [y, col, a, s] of [[-42, '#b3c4cc', 0.42, 0.02], [-66, '#7f9bae', 0.62, 0.015], [-105, '#46667e', 0.88, 0.011]]) {
       const g = new THREE.CircleGeometry(300, 48);
       g.rotateX(-Math.PI / 2);
       const m = new THREE.Mesh(g, mat(y, col, a, s));

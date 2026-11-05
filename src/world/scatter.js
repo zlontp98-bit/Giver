@@ -33,8 +33,9 @@ export function scatterRules(W, L) {
   add('pineTall', 50, 4.0, 5.6, { pick: ring(20, 200), ok: upperOk(55) });
   add('round', 45, 4.2, 6.0, { pick: ring(12, 170), ok: upperOk(48) });
   add('fat', 30, 4.4, 6.0, { pick: ring(12, 170), ok: upperOk(48) });
-  add('bush', 160, 2.4, 3.6, { pick: ring(6, 150), ok: upperOk(26) });
-  add('grass', 800, 1.6, 2.6, { pick: ring(3, 90), ok: upperOk(14) });
+  const dm = W.rift && L.demo ? 0.4 : 1;                 // в демо у героя своя густая трава — мелочи меньше
+  add('bush', Math.round(160 * (0.5 + dm / 2)), 2.4, 3.6, { pick: ring(6, 150), ok: upperOk(26) });
+  add('grass', Math.round(800 * dm), 1.6, 2.6, { pick: ring(3, 90), ok: upperOk(14) });
   add('flowerY', 160, 1.6, 2.2, { pick: ring(4, 110), ok: upperOk(14) });
   add('flowerR', 120, 1.6, 2.2, { pick: ring(4, 110), ok: upperOk(14) });
   add('rock', 70, 2.2, 4.5, { pick: ring(6, 220), ok: upperOk(30) });
@@ -115,15 +116,16 @@ function riftRules(W, L, add, nearZip) {
   const S0 = { yTop: 2, yBot: -34, minNy: 0.72 };
   // первая ступень у посёлка
   const near = shelf(0, N - 0.95, N + 0.95);
-  add('pine', 26, 3.6, 5.2, { ...S0, pick: near, ok: okShelf });
-  add('oak', 14, 3.4, 4.8, { ...S0, pick: near, ok: okShelf });
-  add('bush', 50, 2.2, 3.4, { ...S0, pick: near, ok: okShelf });
+  // (трава — своя густая у героя, world/grassfield.js; здесь — только крупное и цветы)
+  add('pine', 24, 3.6, 5.2, { ...S0, pick: near, ok: okShelf });
+  add('oak', 12, 3.4, 4.8, { ...S0, pick: near, ok: okShelf });
+  add('bush', 30, 2.2, 3.4, { ...S0, pick: near, ok: okShelf });
   add('berry', 10, 2.6, 3.0, { ...S0, pick: near, ok: okShelf });
-  add('fern', 140, 2.4, 3.8, { ...S0, pick: near, ok: okShelf });
-  add('grassDeep', 420, 1.6, 2.6, { ...S0, pick: near, ok: okShelf });
-  add('flowerP', 90, 1.6, 2.2, { ...S0, pick: near, ok: okShelf });
-  add('mushroom', 26, 2.5, 4.2, { ...S0, pick: near, ok: okShelf });
-  add('rock', 30, 2.0, 4.2, { ...S0, pick: near, ok: okShelf });
+  add('fern', 70, 2.4, 3.8, { ...S0, pick: near, ok: okShelf });
+  add('grassDeep', 90, 1.6, 2.6, { ...S0, pick: near, ok: okShelf });
+  add('flowerP', 50, 1.6, 2.2, { ...S0, pick: near, ok: okShelf });
+  add('mushroom', 20, 2.5, 4.2, { ...S0, pick: near, ok: okShelf });
+  add('rock', 24, 2.0, 4.2, { ...S0, pick: near, ok: okShelf });
   // все полки вокруг (видны издалека): редкие ели и кусты
   for (let k = 0; k < 3; k++) {
     const all = shelf(k, 0, Math.PI * 2), y = { yTop: 4 - k * 30, yBot: -40 - k * 40, minNy: 0.74 };
@@ -141,7 +143,7 @@ function riftRules(W, L, add, nearZip) {
   const tops = (rng) => { const p = L.pillars[Math.floor(rng() * L.pillars.length)]; const a = rng() * Math.PI * 2, r = Math.sqrt(rng()) * p.rad * 0.8; return [p.pos[0] + Math.cos(a) * r, p.pos[2] + Math.sin(a) * r]; };
   const T = { yTop: 2, yBot: -100, minNy: 0.8 };
   add('pine', 18, 3.4, 5.0, { ...T, pick: tops, ok: okShelf });
-  add('grass', 160, 1.4, 2.2, { ...T, pick: tops, ok: okShelf });
+  add('grass', 70, 1.4, 2.2, { ...T, pick: tops, ok: okShelf });
   add('bush', 20, 2.0, 3.0, { ...T, pick: tops, ok: okShelf });
   return out;
 }

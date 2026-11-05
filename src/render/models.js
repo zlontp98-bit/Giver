@@ -21,6 +21,7 @@ function b64ToBuf(url) {
 // Модели наборов Kenney с общей текстурой-палитрой (colormap.png) называются с приставкой набора:
 // sv- (выживание), ft- (городок), tr- (железная дорога), dg- (подземелье). Палитру берём из ASSETS.
 const KITS = ['sv', 'ft', 'tr', 'dg'];
+const KIT_TINT = { ft: new THREE.Color(0.8, 0.7, 0.62), sv: new THREE.Color(0.86, 0.78, 0.7) };
 
 // Природа Quaternius (Stylized Nature MegaKit, CC0) — приставка q-: текстуры общие (q-*.png|jpg в ASSETS,
 // по 256 px), листва — вырезка по альфе с двух сторон, у кроны нормали «шаром» от её середины (мягкий
@@ -91,7 +92,8 @@ export async function loadModels() {
         const map = maps[kit] || (maps[kit] = src.map);
         map.generateMipmaps = false;
         map.minFilter = THREE.LinearFilter;
-        o.material = new THREE.MeshLambertMaterial({ map, side: src.side });
+        // палитра наборов Kenney яркая и «пластиковая» — приглушаем к тёплому дереву и камню
+        o.material = new THREE.MeshLambertMaterial({ map, side: src.side, color: KIT_TINT[kit] || 0xffffff });
       } else {
         const c = PALETTE[src.name] ? new THREE.Color(PALETTE[src.name]) : src.color;
         o.material = new THREE.MeshLambertMaterial({ color: c, side: src.side });

@@ -55,8 +55,10 @@ export class SdfWorld {
       // контур: вытянут с запада на восток, большие заливы и мысы
       let R = 168 + 58 * s * s + 26 * per(th, 1.15, 3, 1) + 11 * per(th, 3.1, 7, 5, nb) + 4 * per(th, 7.3, 1, 9);
       this.R0[i] = Math.min(268, R);
-      // нависающий край местами (у посёлка — меньше)
-      this.LIP[i] = Math.max(0, per(th, 2.4, 11, 2, nb)) * 9 * (1 - 0.6 * north);
+      // нависающий край местами (у посёлка — меньше, у водопада — нет: там река срывается с края)
+      let lip = Math.max(0, per(th, 2.4, 11, 2, nb)) * 9 * (1 - 0.6 * north);
+      for (const b of boost) if (b.noLip) lip *= 1 - smoothstep(b.span, b.span * 0.4, Math.abs(Math.atan2(Math.sin(th - b.th), Math.cos(th - b.th))));
+      this.LIP[i] = lip;
       for (let k = 0; k < BENCH_Y.length; k++) {
         // слои наклонены (ступени не кольцами): смещение по высоте — шум + наклон
         this.BY[k][i] = BENCH_Y[k] + (5 + k * 1.6) * per(th, 1.7, k * 3.1, 2 - k, nb) + (3 + k) * Math.sin(th * 1 + k * 1.9);

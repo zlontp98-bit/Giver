@@ -6,8 +6,9 @@ import { flicker } from './fire.js';
 
 // полосы по высоте: выше — светлее и прозрачнее, глубже — гуще дымка
 const BANDS = [
-  { y: 10, fog: '#d7e6ee', fogD: 0.0013, light: 1.0, glow: '#eef6d0' },
-  { y: -25, fog: '#c6dbe4', fogD: 0.0018, light: 0.97, glow: '#dff3b8' },
+  // наверху — дымка с расстоянием (дальняя стена голубеет и мягчеет: видно, как она далеко)
+  { y: 10, fog: '#c4ced3', fogD: 0.0021, light: 1.0, glow: '#eef6d0' },
+  { y: -25, fog: '#b3c3cc', fogD: 0.0026, light: 0.95, glow: '#dff3b8' },
   { y: -85, fog: '#aec3cb', fogD: 0.0033, light: 0.86, glow: '#c4ecff' },
   { y: -145, fog: '#8aa3b4', fogD: 0.0046, light: 0.74, glow: '#86ecff' },
   { y: -210, fog: '#68869c', fogD: 0.006, light: 0.62, glow: '#7affd9' },

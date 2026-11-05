@@ -173,7 +173,7 @@ export function worldMaterial(level = 0) {
           #else
             // рисованная расцветка без текстур (стиль Giver): трава — тёплые и прохладные пятна; скала — слои
             // породы разного цвета с тёмными швами, мох на верхних гранях; чем глубже — тем холоднее
-            float big = gvNoise(vWP.xz * 0.03 + 7.0), mid = gvNoise(vWP.xz * 0.13 + vWP.y * 0.05);
+            float big = vNz.x, mid = vNz.y;
             vec3 gTint = mix(vec3(1.12, 1.07, 0.78), vec3(0.80, 1.0, 0.95), smoothstep(0.3, 0.7, big)) * (0.9 + 0.2 * mid);
             vec3 rTint = vec3(1.0);
             if (gSteep > 0.02) {
@@ -268,19 +268,22 @@ function rockMaterial(level) {
   m.customProgramCacheKey = () => 'giverRock' + level;
   m.onBeforeCompile = (sh) => {
     sh.uniforms.tFacet = { value: tex };
+    // крупные пятна и оттенки глыб меняются медленно — считаем их в вершинах (их в десятки раз меньше,
+    // чем точек на экране); в точке — только грани и трещины из текстуры
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec2 aLit; attribute vec3 aGlow;
-        varying vec2 vLit; varying vec3 vGlow; varying vec3 vWP; varying vec3 vWN;`)
+        varying vec2 vLit; varying vec3 vGlow; varying vec3 vWP; varying vec3 vWN; varying vec3 vNz;
+        ${NOISE_GLSL}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vLit = aLit; vGlow = aGlow;
         vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        vWN = normalize(mat3(modelMatrix) * objectNormal);`);
+        vWN = normalize(mat3(modelMatrix) * objectNormal);
+        vNz = vec3(gvNoise(vWP.xz * 0.03 + 7.0), gvNoise(vWP.xz * 0.13 + vWP.y * 0.05), gvNoise(vec2((vWP.x + vWP.z) * 0.06, vWP.y * 0.04)));`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-        varying vec2 vLit; varying vec3 vGlow; varying vec3 vWP; varying vec3 vWN;
+        varying vec2 vLit; varying vec3 vGlow; varying vec3 vWP; varying vec3 vWN; varying vec3 vNz;
         uniform sampler2D tFacet;
-        ${NOISE_GLSL}
         vec3 gvPert; float gvCell; float gvCrack; float gSteep;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         {
@@ -290,20 +293,19 @@ function rockMaterial(level) {
           // на стенах грани вытянуты по вертикали (как столбчатые трещины), сверху — обычные
           vec4 tx = texture2D(tFacet, vec2(vWP.z * 0.028, vWP.y * 0.012)), tz = texture2D(tFacet, vec2(vWP.x * 0.028, vWP.y * 0.012));
           vec4 ty = bw.y > 0.02 ? texture2D(tFacet, vWP.xz * 0.05) : vec4(0.5, 0.5, 0.5, 1.0);
-          float slab = texture2D(tFacet, vec2((vWP.x + vWP.z) * 0.011, vWP.y * 0.0055)).b;      // крупные глыбы — свой оттенок
+          float slab = vNz.z;                                                                       // крупные глыбы — свой оттенок
           vec2 nx = tx.rg * 2.0 - 1.0, ny2 = ty.rg * 2.0 - 1.0, nz = tz.rg * 2.0 - 1.0;
           gvPert = vec3(0.0, nx.y, nx.x) * bw.x + vec3(ny2.x, 0.0, ny2.y) * bw.y + vec3(nz.x, nz.y, 0.0) * bw.z;
           gvCell = tx.b * bw.x + ty.b * bw.y + tz.b * bw.z;
           gvCrack = tx.a * bw.x + ty.a * bw.y + tz.a * bw.z;
-          float big = gvNoise(vWP.xz * 0.03 + 7.0), mid = gvNoise(vWP.xz * 0.13 + vWP.y * 0.05);
+          float big = vNz.x, mid = vNz.y;
           // трава/мох на ровном: тёплые и прохладные пятна
           vec3 gTint = mix(vec3(1.08, 1.04, 0.80), vec3(0.80, 0.98, 0.94), smoothstep(0.3, 0.7, big)) * (0.9 + 0.2 * mid);
-          gTint *= 0.9 + 0.1 * gvCrack;
+
           // камень: каждая глыба своя (светлее/темнее, теплее/холоднее), трещины тёмные, мох сверху
           vec3 rTint = mix(vec3(0.88), vec3(1.1), gvCell) * mix(vec3(0.84, 0.86, 0.9), vec3(1.12, 1.06, 0.98), slab);
           rTint *= mix(vec3(1.05, 0.98, 0.91), vec3(0.93, 0.97, 1.05), step(0.5, fract(gvCell * 7.0)));
           rTint *= 0.74 + 0.26 * gvCrack;
-          rTint *= 0.9 + 0.2 * gvNoise(vec2((vWP.x + vWP.z) * 0.45, vWP.y * 0.035));         // подтёки
           float moss = smoothstep(0.3, 0.7, wn.y + gvPert.y * 0.5) * smoothstep(0.25, 0.6, mid);
           rTint *= mix(vec3(1.0), vec3(0.58, 0.9, 0.5), moss);
           diffuseColor.rgb *= mix(gTint, rTint, gSteep);
@@ -313,7 +315,7 @@ function rockMaterial(level) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           vec3 wn = normalize(vWN);
-          vec3 nW = normalize(wn + gvPert * mix(0.22, 0.95, gSteep));
+          vec3 nW = normalize(wn + gvPert * mix(0.06, 0.95, gSteep));
           normal = normalize((viewMatrix * vec4(nW, 0.0)).xyz);
         }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
